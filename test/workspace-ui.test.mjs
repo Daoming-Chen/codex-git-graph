@@ -14,7 +14,7 @@ function harness() {
     if(nodes.has(id))return nodes.get(id);
     const classes=new Set(),el={id,value:'',textContent:'',innerHTML:'',hidden:false,disabled:false,open:false,scrollTop:0,clientHeight:0,style:{setProperty(){}},dataset:{},tagName:'DIV',
       classList:{add(...v){v.forEach(x=>classes.add(x));},remove(...v){v.forEach(x=>classes.delete(x));},contains:x=>classes.has(x),toggle(x,v){v??=!classes.has(x);v?classes.add(x):classes.delete(x);return v;}},
-      querySelectorAll(){return [];},querySelector(){return null;},addEventListener(){},insertAdjacentHTML(){},setAttribute(){},append(child){(this.children??=[]).push(child);},focus(){},setPointerCapture(){},showModal(){this.open=true;},close(){this.open=false;},getBoundingClientRect(){return {width:100,top:0,bottom:0};}};
+      querySelectorAll(){return [];},querySelector(){return null;},addEventListener(){},insertAdjacentHTML(){},setAttribute(){},before(){},after(){},append(child){(this.children??=[]).push(child);},focus(){},setPointerCapture(){},showModal(){this.open=true;},close(){this.open=false;},getBoundingClientRect(){return {width:100,top:0,bottom:0};}};
     nodes.set(id,el);el.parentElement=el;return el;
   };
   const parent={},document={getElementById:node,documentElement:node('root'),body:node('body'),activeElement:node('focused'),createElement:tag=>node('created-'+nodes.size),addEventListener(){},querySelectorAll(){return [...nodes.values()].filter(n=>n.open);},querySelector:selector=>node(selector)};

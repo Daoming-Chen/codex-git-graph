@@ -21,5 +21,5 @@ export async function packagePlugin(destination) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const destination = process.argv[2];
   if (!destination) throw new Error('Usage: node scripts/package.mjs <new-directory> (run npm run build first)');
-  console.log(`Packaged Git Graph: ${await packagePlugin(destination)}`);
+  console.log(`Packaged WorkGraph: ${await packagePlugin(destination)}`);
 }

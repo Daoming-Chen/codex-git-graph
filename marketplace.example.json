@@ -1,6 +1,6 @@
 {
   "name": "codex-git-graph-local",
-  "interface": { "displayName": "Git Graph · 本地开发" },
+  "interface": { "displayName": "WorkGraph · 本地开发" },
   "plugins": [
     {
       "name": "codex-git-graph",

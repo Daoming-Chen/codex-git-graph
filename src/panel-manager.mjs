@@ -30,7 +30,7 @@ export function createPanelManager({ html, maxPanels = 10, idleTimeoutMs = 30 * 
     get size() { return panels.size; },
     async open(repositoryPath) {
       return serialized(async () => {
-        if (closing) throw new Error('Git Graph 服务正在关闭，请重新打开插件。');
+        if (closing) throw new Error('WorkGraph 服务正在关闭，请重新打开插件。');
         const existing = panels.get(repositoryPath);
         if (existing?.panel.server.listening) {
           existing.lastUsed = now();

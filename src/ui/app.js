@@ -24,7 +24,7 @@ async function call(route, args = {}) {
   const result = await app.callServerTool({name:route==='snapshot'?'git_graph_open':`git_graph_${route}`,arguments:{...args,...(route==='context'?{}:{repositoryPath:repositoryPath || undefined})}});
   session.assert();
   if (result.isError) throw new Error(result.content?.find(c=>c.type==='text')?.text || '请求失败。'); return result.structuredContent;
-  } catch(error) { session.assert(); if(token&&error instanceof TypeError)throw new Error('连接已断开，请重新打开 Git Graph 获取新链接。写操作结果不确定时请先刷新核对。');throw error; }
+  } catch(error) { session.assert(); if(token&&error instanceof TypeError)throw new Error('连接已断开，请重新打开 WorkGraph 获取新链接。写操作结果不确定时请先刷新核对。');throw error; }
 }
 function active() { return state.data?.worktrees.find(w=>w.path===state.active); }
 function wtName(w) {return w.branch?.replace('refs/heads/','') || (w.bare?'裸仓库':!w.head||/^0+$/.test(w.head)?'尚无提交':'detached HEAD');}
@@ -49,7 +49,7 @@ function switchRepository(repositoryPath) {
   for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
   for(const id of ['menu-content','action-fields','action-error','action-preview','detail-meta','detail-tabs','files','diff','diff-title','commit-pane','history','nav','summary','matches'])$(id).textContent='';
   $('search').value='';$('repo-input').value=repositoryPath||'';$('scope').innerHTML='<option value="">全部历史</option>';
-  $('repo-name').textContent='Git Graph';$('repo-name').title='';$('branch').textContent='';$('worktree-menu').textContent='Worktree';$('worktree-menu').title='';
+  $('repo-name').textContent='WorkGraph';$('repo-name').title='';$('branch').textContent='';$('worktree-menu').textContent='Worktree';$('worktree-menu').title='';
   $('detail').hidden=true;$('commit-pane').hidden=true;$('load-more').hidden=true;$('empty').hidden=true;$('prev').hidden=$('next').hidden=true;$('refresh').disabled=false;
   $('app').classList.remove('full-detail');$('expand-detail').textContent='展开详情';$('history-scroll').scrollTop=0;
   if($('file-tools'))$('file-tools').hidden=true;notify('');
@@ -114,7 +114,7 @@ async function refresh({reloadDetail=true}={}) {
     let data,commits=[];
     for(let offset=0;offset<state.limit;){
       data=await call('snapshot',{limit:Math.min(2000,state.limit-offset),offset,scope:state.scope,...features?.snapshotOptions()});
-      if(request!==state.refreshRequest)return;if(data?.needsRepository){receive(data);return;}if(!data?.repository||!Array.isArray(data.commits))throw new Error('仓库数据无效，请重新打开 Git Graph。');commits.push(...data.commits);
+      if(request!==state.refreshRequest)return;if(data?.needsRepository){receive(data);return;}if(!data?.repository||!Array.isArray(data.commits))throw new Error('仓库数据无效，请重新打开 WorkGraph。');commits.push(...data.commits);
       if(!data.hasMore||!data.commits.length)break;offset+=data.commits.length;
     }
     data={...data,commits:[...new Map(commits.map(c=>[c.hash,c])).values()]};
@@ -192,7 +192,7 @@ $('detail-tabs').onclick=e=>{if(e.target.id==='tab-files'){$('detail-content').h
 $('detail-meta').onclick=async e=>{try{if(e.target.id==='copy-sha'){await navigator.clipboard.writeText(state.detail.b);e.target.textContent='已复制';}if(e.target.id==='detail-more')rowMenu(state.rows.find(r=>r.hash===state.detail.b)||{hash:state.detail.b,subject:state.detail.commit.subject,kind:'commit'});if(e.target.id==='swap-compare')await compare(state.compare.b,state.compare.a);if(e.target.id==='exit-compare'){state.compare=null;await showDetail({hash:state.detail.b});}}catch(e){if(!isStaleWorkspace(e))notify(e.message);}};$('detail-meta').onchange=e=>{if(e.target.id==='parent')void showDetail({hash:state.detail.b,parent:Number(e.target.value)});};$('diff').onclick=e=>{if(e.target.id==='retry-diff')void selectFile(state.file);};
 $('commit-pane').oninput=e=>{if(e.target.id==='commit-message'){state.message=e.target.value;const d=state.detail;$('commit-submit').disabled=state.pending||!state.message.trim()||!d.branch||!d.identity||!d.status.staged||!!d.status.conflicts||!!d.ongoing.length;}};$('commit-pane').onclick=e=>{if(e.target.id==='commit-submit')void runAction('commit',{worktreePath:state.detail.path,message:state.message});};
 $('repo-form').onsubmit=e=>{e.preventDefault();contextBinding=false;contextRequest++;switchRepository($('repo-input').value.trim());void refresh();};
-document.addEventListener('keydown',e=>{const input=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);if((e.key==='/'&&!input)||((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f')){e.preventDefault();$('search').focus();}if(e.key==='Escape'&&!input&&!$('menu').open&&!$('action-dialog').open){e.preventDefault();if($('app').classList.contains('full-detail')){$('app').classList.remove('full-detail');$('expand-detail').textContent='展开详情';}else closeDetail();}});
+document.addEventListener('keydown',e=>{if($('app').classList.contains('work-mode'))return;const input=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);if((e.key==='/'&&!input)||((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f')){e.preventDefault();$('search').focus();}if(e.key==='Escape'&&!input&&!$('menu').open&&!$('action-dialog').open){e.preventDefault();if($('app').classList.contains('full-detail')){$('app').classList.remove('full-detail');$('expand-detail').textContent='展开详情';}else closeDetail();}});
 let layout={};try{layout=JSON.parse(localStorage.getItem('git-graph-layout-v3')||'{}');}catch{}
 $('app').classList.toggle('nav-closed',layout.navClosed!==false);$('app').classList.toggle('bottom-detail',layout.bottomDetail!==false);$('dock-detail').textContent=layout.bottomDetail!==false?'右侧':'底部';
 function applyTheme(){const t=layout.theme||'dark';document.documentElement.dataset.theme=t==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):t;}
@@ -220,7 +220,7 @@ async function syncHostRepository({queue=true}={}) {
   finally{contextInFlight=false;if(contextQueued&&!contextDisposed){contextQueued=false;void syncHostRepository();}}
 }
 if(token)void refresh();else if(window.parent!==window){
-  app=new App({name:'Git Graph',version:'0.3.0'},{});
+  app=new App({name:'WorkGraph',version:'0.3.0'},{});
   app.ontoolinput=r=>{contextRequest++;if(r.arguments?.repositoryPath){contextBinding=false;switchRepository(r.arguments.repositoryPath);}else{contextBinding=true;switchRepository(null);}};
   app.ontoolresult=r=>{const data=r.structuredContent;if(!state.repositoryPath)void syncHostRepository();else if(data?.repository)void refresh();};
   app.onhostcontextchanged=ctx=>{if(ctx.theme)document.documentElement.dataset.theme=ctx.theme;void syncHostRepository();};
@@ -230,3 +230,5 @@ if(token)void refresh();else if(window.parent!==window){
   app.onteardown=()=>{contextDisposed=true;contextQueued=false;clearInterval(contextTimer);window.removeEventListener('focus',onContextFocus);contextRequest++;workspace.invalidate();return {};};
   bridgeReady=app.connect();bridgeReady.then(()=>syncHostRepository()).catch(e=>notify(e.message));
 }else notify('请使用本地服务输出的完整链接，或从 Codex 插件打开面板。');
+import { installWorkPrototype } from './work-prototype.js';
+installWorkPrototype();

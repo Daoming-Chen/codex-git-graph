@@ -20,7 +20,7 @@ export async function startHttp({ repositoryPath, html, port = 0, devHarness = f
     }
     const url = new URL(req.url, origin);
     if (devHarness && url.pathname === '/__layout' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(`<!doctype html><meta charset="utf-8"><title>Development layout harness</title><style>body{margin:0;background:#333}iframe{border:0;display:block}</style><iframe id="product" title="Git Graph actual product" height="720"></iframe><script>const p=new URLSearchParams(location.search),w=Number(p.get('width'));document.querySelector('iframe').width=[420,640,960,1280].includes(w)?w:1280;document.querySelector('iframe').src='/'+location.hash;</script>`); return;
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(`<!doctype html><meta charset="utf-8"><title>Development layout harness</title><style>body{margin:0;background:#333}iframe{border:0;display:block}</style><iframe id="product" title="WorkGraph actual product" height="720"></iframe><script>const p=new URLSearchParams(location.search),w=Number(p.get('width'));document.querySelector('iframe').width=[420,640,960,1280].includes(w)?w:1280;document.querySelector('iframe').src='/'+location.hash;</script>`); return;
     }
     if (!['GET', 'POST'].includes(req.method)) { res.writeHead(405).end('Method not allowed'); return; }
     if (url.pathname === '/' && req.method === 'GET') {

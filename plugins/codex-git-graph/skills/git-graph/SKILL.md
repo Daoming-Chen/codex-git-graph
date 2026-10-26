@@ -1,6 +1,6 @@
 ---
 name: git-graph
-description: 打开当前仓库的 Git Graph 面板，查看分支合并历史、Worktree 状态和提交差异。适用于要求可视化本地 Git 状态的任务。
+description: 打开当前仓库的 WorkGraph 面板（原 Git Graph），查看分支合并历史、Worktree 状态和提交差异。适用于要求可视化本地 Git 状态的任务。
 ---
 
 从当前任务取得仓库绝对路径；不要将插件安装目录当作仓库路径。调用插件的 `git_graph_open` 工具并传入 `repositoryPath`。

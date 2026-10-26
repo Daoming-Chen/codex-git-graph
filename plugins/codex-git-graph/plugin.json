@@ -6,11 +6,11 @@
   "extensions": {
     "com.openai": {
       "interface": {
-        "displayName": "Git Graph",
+        "displayName": "WorkGraph",
         "shortDescription": "可视化本地 Git 与 Worktree 状态",
         "category": "Productivity",
         "capabilities": ["Read", "Write"],
-        "defaultPrompt": ["打开当前仓库的 Git Graph，显示所有 Worktree。"]
+        "defaultPrompt": ["打开当前仓库的 WorkGraph，显示所有 Worktree。"]
       }
     }
   }
