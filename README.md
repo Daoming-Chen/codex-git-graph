@@ -1,15 +1,16 @@
 # WorkGraph
 
-WorkGraph（原 Codex Git Graph）以工作进展为产品方向，Git 提供底层版本管理。当前版本提供 Git 提交图、文件差异、分支和 Worktree 管理，并加入使用独立演示数据的工作进展交互原型；真实工作项管理尚未实现。
+WorkGraph（原 Codex Git Graph）按工作项展示项目进展，将仓库中的工作记录关联到真实 Git 提交。当前版本支持读取工作状态、查看关联提交和差异，并保留 Git 提交图、分支和 Worktree 管理。
 
-默认进入工作演示，可从顶部切换到「真实 Git」。演示只保存在页面内存，刷新后重置，不会修改真实 Git。演示步骤与边界见[工作视图交互原型](docs/work-prototype.md)。
+默认进入「工作进展」，读取当前仓库的 `.workgraph.json` 和 HEAD 最近 300 条提交。点击顶部「Git 历史」可切换到原有 Git 操作界面。工作记录需要手动维护，尚未实现自动记录、恢复点或自动验收。配置方法与数据边界见 [WorkGraph 使用说明](docs/work-graph.md)。
 
 现有 GitGraph UI 是后续界面的视觉基准。产品概念与实施前决策见[项目开发视图产品概念](docs/project-development-concept.md)。
 
-本轮统一产品显示名称为 WorkGraph。为保持兼容，仓库地址、包名、插件目录与安装标识、`git_graph_*` 工具及现有配置存储名称暂时保留。
+产品显示名称为 WorkGraph。为保持兼容，仓库地址、包名、插件目录与安装标识、`git_graph_*` 工具及现有配置存储名称暂时保留。
 
 ## 可以用来做什么
 
+- 按工作项查看当前状态、下一步和关联提交，单独查看未提交文件；状态来自工作记录，不代表验证或用户验收。
 - 看清提交、合并、分支、标签和多个 Worktree 的关系，定位 HEAD 或比较两个提交。
 - 逐文件查看已暂存、未暂存、未跟踪和冲突内容，选择文件暂存，再创建提交。
 - 在面板中管理分支、标签、Stash 和远程仓库，执行 Fetch、Pull、Push 及历史操作。
@@ -48,6 +49,7 @@ npm start -- --repo "D:\path\to\repository"
 
 - [安装与打包](docs/install-lifecycle.md)
 - [使用指南](docs/usage.md)
+- [WorkGraph 工作记录与数据边界](docs/work-graph.md)
 - [故障排查](docs/troubleshooting.md)
 - [贡献指南](CONTRIBUTING.md) · [架构与安全边界](docs/current-implementation.md)
 - [项目开发视图产品概念](docs/project-development-concept.md)（规划，待细化）
@@ -55,5 +57,3 @@ npm start -- --repo "D:\path\to\repository"
 ## 许可证
 
 仓库目前未提供项目 LICENSE，不能据此认定已授予开源使用、修改或分发许可。第三方素材的声明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
-
-真实项目工作视图与数据边界见[WorkGraph 使用说明](docs/work-graph.md)。

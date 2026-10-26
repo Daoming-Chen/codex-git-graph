@@ -11,6 +11,7 @@
 | `src/actions.mjs` | 文件清单、逐文件 diff、prepare/execute 与状态校验 |
 | `src/remote-actions.mjs`、`src/history-actions.mjs` | 远程引用、历史和工作区写操作校验 |
 | `src/review.mjs` | 元数据、历史／工作目录比较、文件内容 |
+| `src/work-graph.mjs`、`src/ui/work-live.js` | 工作记录读取、提交归属、工作轨道和实际差异展示 |
 | `src/preferences.mjs` | 仓库配置与审阅进度持久化 |
 | `src/workspace-context.mjs`、`src/codex-context.mjs`、`src/ui/workspace.js` | 本机聊天／项目与 MCP roots 解析、仓库切换与旧请求失效 |
 | `src/panel-manager.mjs` | HTTP 服务复用、容量与空闲回收 |
