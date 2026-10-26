@@ -1,6 +1,6 @@
 // Git Graph workflow controls. The graph remains the owner of selection and layout.
 export function installFeatures(ctx) {
-  const {state,$,esc,call,menu,closeMenu,refresh,showDetail,selectFile,notify,active,renderHistory}=ctx;
+  const {state,$,esc,call,workspace,isStaleWorkspace,menu,closeMenu,refresh,showDetail,selectFile,notify,active,renderHistory}=ctx;
   const button=(label,op,data={})=>`<button data-feature="${op}" data-args="${esc(JSON.stringify(data))}">${esc(label)}</button>`;
   const field=(name,label,value='',type='text')=>`<label>${esc(label)}<input name="${name}" type="${type}" value="${esc(value)}"></label>`;
   const check=(name,label,checked=false)=>`<label class="check-label"><input type="checkbox" name="${name}" ${checked?'checked':''}>${esc(label)}</label>`;
@@ -9,13 +9,14 @@ export function installFeatures(ctx) {
   const config=()=>preferencesRepo===state.repositoryPath?preferences.config:{};
   async function loadPreferences(){
     if(preferencesRepo===state.repositoryPath)return;
-    if(preferenceLoading)return preferenceLoading;
+    if(preferenceLoading?.repo===state.repositoryPath)return preferenceLoading.promise;
     const repo=state.repositoryPath;
-    preferenceLoading=call('preferences').then(value=>{if(repo===state.repositoryPath){preferences=value;preferencesRepo=repo;applyColumnWidths();renderHistory();decorateFiles();}}).finally(()=>{preferenceLoading=null;});
-    return preferenceLoading;
+    const loading={repo};
+    loading.promise=call('preferences').then(value=>{if(repo===state.repositoryPath){preferences=value;preferencesRepo=repo;applyColumnWidths();renderHistory();decorateFiles();}}).finally(()=>{if(preferenceLoading===loading)preferenceLoading=null;});
+    preferenceLoading=loading;return loading.promise;
   }
-  function persist(input){const repo=state.repositoryPath;const promise=preferenceWrites.catch(()=>{}).then(()=>{if(repo!==state.repositoryPath)throw new Error('仓库已切换，请重新保存。');return call('save_preferences',{input});});preferenceWrites=promise;return promise;}
-  const saveConfig=async value=>{await loadPreferences();await persist({config:value});preferences.config=value;applyColumnWidths();};
+  function persist(input){const session=workspace.capture(),repo=state.repositoryPath;const promise=preferenceWrites.catch(()=>{}).then(()=>{session.assert();if(repo!==state.repositoryPath)throw new Error('仓库已切换，请重新保存。');return call('save_preferences',{input});});preferenceWrites=promise;return promise;}
+  const saveConfig=async value=>{const session=workspace.capture();await loadPreferences();session.assert();await persist({config:value});session.assert();preferences.config=value;applyColumnWidths();};
   let filters={}, metadata=null, metadataRepo=null, formSpec=null, preparation=null, busy=false;
   const dialog=document.createElement('dialog');dialog.id='workflow-dialog';
   dialog.innerHTML='<form id="workflow-form"><h2 id="workflow-title"></h2><div id="workflow-fields"></div><p id="workflow-error" role="alert"></p><pre id="workflow-preview" hidden></pre><div class="dialog-actions"><button type="button" id="workflow-cancel">取消</button><button id="workflow-submit" type="submit">检查操作</button></div></form>';
@@ -77,31 +78,34 @@ export function installFeatures(ctx) {
   }
   $('workflow-form').oninput=()=>{preparation=null;$('workflow-preview').hidden=true;$('workflow-submit').textContent=formSpec?.save?'保存':'检查操作';};
   $('workflow-form').onsubmit=async e=>{
-    e.preventDefault();if(busy||state.pending)return;busy=true;state.pending=true;$('workflow-cancel').disabled=true;$('workflow-submit').disabled=true;$('workflow-error').textContent='';
+    e.preventDefault();if(busy||state.pending)return;const session=workspace.capture(),spec=formSpec;busy=true;state.pending=true;$('workflow-cancel').disabled=true;$('workflow-submit').disabled=true;$('workflow-error').textContent='';
     try{
       const form=e.target,values=Object.fromEntries(new FormData(form));
       form.querySelectorAll('input[type=checkbox][name]').forEach(el=>values[el.name]=el.checked);
-      if(formSpec.save){await formSpec.save(values,form);dialog.close();return;}
+      if(spec.save){await spec.save(values,form);session.assert();dialog.close();return;}
       if(!preparation){
         if('mainline'in values){if(values.mainline==='')delete values.mainline;else values.mainline=Number(values.mainline);}
         for(const key of ['message','remote'])if(values[key]==='')delete values[key];
-        const payload={...formSpec.payload,...values};
+        const payload={...spec.payload,...values};
         if('confirm'in values&&!values.confirm)throw new Error('请先核对对象并勾选确认。');
-        const version=formSpec.expectedVersion||(payload.worktreePath?(await call('files',{input:{worktreePath:payload.worktreePath}})).version:undefined);
-        preparation=await call('prepare',{action:formSpec.op,payload,expectedVersion:version});
+        const version=spec.expectedVersion||(payload.worktreePath?(await call('files',{input:{worktreePath:payload.worktreePath}})).version:undefined);
+        session.assert();
+        const preview=await call('prepare',{action:spec.op,payload,expectedVersion:version});
+        session.assert();preparation=preview;
         const labels={worktreePath:'工作区',ref:'目标提交／引用',hash:'提交',start:'起点',name:'名称',newName:'新名称',remote:'远程仓库',url:'URL',paths:'文件',stash:'Stash',mode:'方式',scope:'范围',operation:'进行中的操作',message:'说明',remoteBranch:'远程分支',mainline:'主线父提交',ffMode:'合并方式',prune:'清理失效引用',force:'允许删除未合并分支',signed:'签名',includeUntracked:'包含未跟踪文件',keepIndex:'保留暂存',reinstateIndex:'恢复暂存',noCommit:'仅应用不提交',setUpstream:'设置上游'};
         $('workflow-preview').textContent=Object.entries(payload).filter(([k])=>k!=='confirm').map(([k,v])=>`${labels[k]||k}：${Array.isArray(v)?v.join('\n  '):typeof v==='boolean'?(v?'是':'否'):v}`).join('\n');$('workflow-preview').hidden=false;$('workflow-submit').textContent='确认执行';
       }else{
+        session.assert();
         const result=await call('execute',{actionId:preparation.actionId,operationId:crypto.randomUUID()});
-        preparation=null;metadataRepo=null;
-        await refresh();
+        session.assert();preparation=null;metadataRepo=null;
+        await refresh();session.assert();
         if(result.state!=='completed'){
           $('workflow-error').textContent=(result.error||'操作未完成')+'\n请检查当前工作区；如有冲突，可从工作区菜单继续或中止。';
           $('workflow-preview').textContent=JSON.stringify(result,null,2);$('workflow-submit').textContent='重新检查';
         }else{dialog.close();notify(`${operationLabels[formSpec.op]}完成。`);}
       }
-    }catch(error){preparation=null;$('workflow-error').textContent=error.message;$('workflow-submit').textContent=formSpec?.save?'保存':'检查操作';}
-    finally{busy=false;state.pending=false;$('workflow-cancel').disabled=false;$('workflow-submit').disabled=false;ctx.filesRender();if(state.detail?.kind==='worktree'&&!state.detail.comparison)ctx.commitRender();}
+    }catch(error){if(isStaleWorkspace(error))return;preparation=null;$('workflow-error').textContent=error.message;$('workflow-submit').textContent=formSpec?.save?'保存':'检查操作';}
+    finally{if(!session.current())return;busy=false;state.pending=false;$('workflow-cancel').disabled=false;$('workflow-submit').disabled=false;ctx.filesRender();if(state.detail?.kind==='worktree'&&!state.detail.comparison)ctx.commitRender();}
   };
   async function stashes(){const data=await info();menu('<h2>Stash</h2>'+button('保存当前工作区','stash-create')+(data.stashes||[]).map(s=>`<div class="menu-row"><strong>${esc(s.message||s.subject||s.ref)}</strong><p class="mono">${esc(s.ref)} · ${esc(s.hash?.slice(0,12))}</p>${button('查看差异','stash-view',{hash:s.hash})}${['apply','pop','branch','drop'].map(a=>button({apply:'应用',pop:'弹出',branch:'创建分支',drop:'删除'}[a],'stash-'+a,{stash:s.hash})).join('')}</div>`).join(''));}
   async function remoteMenu(){const data=await info();menu('<h2>远程仓库</h2>'+button('添加远程仓库','remote-add')+(data.remotes||[]).map(r=>`<div class="menu-row"><strong>${esc(r.name)}</strong><p class="path">${esc(r.fetchUrl||r.url)}${r.pushUrl&&r.pushUrl!==r.fetchUrl?'<br>推送：'+esc(r.pushUrl):''}</p>${button('获取更新','fetch',{remote:r.name})}${button('修改','remote-edit',{name:r.name,url:r.fetchUrl||r.url})}${button('Prune','remote-prune',{name:r.name})}${button('删除','remote-remove',{name:r.name})}</div>`).join(''));}
@@ -122,10 +126,10 @@ export function installFeatures(ctx) {
   function safeUrl(value){const url=new URL(value);if(!['http:','https:'].includes(url.protocol))throw new Error('链接仅支持 HTTP 或 HTTPS。');return url.href;}
   function openUrl(value){window.open(safeUrl(value),'_blank','noopener,noreferrer');}
   function exportConfig(){const blob=new Blob([JSON.stringify(config(),null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='git-graph-settings.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
-  function importConfig(){const input=document.createElement('input');input.type='file';input.accept='.json';input.onchange=async()=>{try{const file=input.files[0];if(!file||file.size>65536)throw new Error('配置文件不能超过 64 KiB。');const value=JSON.parse(await file.text());const allowed=['issueUrl','prUrl','dateFormat','autoLoad','fileTree','columnWidths'];if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>!allowed.includes(k)))throw new Error('配置字段无效。');for(const key of ['issueUrl','prUrl']){if(key in value&&typeof value[key]!=='string')throw new Error('URL 模板必须是文本。');}for(const key of ['issueUrl','prUrl'])if(value[key])safeUrl(value[key].replaceAll('{id}','1').replaceAll('{branch}','main'));if(value.dateFormat&&!['short','full','relative'].includes(value.dateFormat))throw new Error('日期格式无效。');for(const key of ['autoLoad','fileTree'])if(key in value&&typeof value[key]!=='boolean')throw new Error('配置类型无效。');await saveConfig(value);notify('仓库配置已导入。');renderHistory();}catch(e){notify(e.message);}};input.click();}
+  function importConfig(){const input=document.createElement('input');input.type='file';input.accept='.json';input.onchange=async()=>{const session=workspace.capture();try{const file=input.files[0];if(!file||file.size>65536)throw new Error('配置文件不能超过 64 KiB。');const value=JSON.parse(await file.text());session.assert();const allowed=['issueUrl','prUrl','dateFormat','autoLoad','fileTree','columnWidths'];if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>!allowed.includes(k)))throw new Error('配置字段无效。');for(const key of ['issueUrl','prUrl']){if(key in value&&typeof value[key]!=='string')throw new Error('URL 模板必须是文本。');}for(const key of ['issueUrl','prUrl'])if(value[key])safeUrl(value[key].replaceAll('{id}','1').replaceAll('{branch}','main'));if(value.dateFormat&&!['short','full','relative'].includes(value.dateFormat))throw new Error('日期格式无效。');for(const key of ['autoLoad','fileTree'])if(key in value&&typeof value[key]!=='boolean')throw new Error('配置类型无效。');await saveConfig(value);notify('仓库配置已导入。');renderHistory();}catch(e){if(!isStaleWorkspace(e))notify(e.message);}};input.click();}
   const reviewKey=()=>`${state.detail?.a||'root'}:${state.detail?.b||'root'}`;
   function review(){return preferences.reviews[reviewKey()]||{active:false,files:[]};}
-  function saveReview(value){const key=reviewKey(),record={active:value.active,files:value.files};preferences.reviews[key]={...record,updatedAt:Date.now()};void persist({review:{key,...record}}).catch(e=>notify('审阅进度未保存：'+e.message));}
+  function saveReview(value){const key=reviewKey(),record={active:value.active,files:value.files};preferences.reviews[key]={...record,updatedAt:Date.now()};void persist({review:{key,...record}}).catch(e=>{if(!isStaleWorkspace(e))notify('审阅进度未保存：'+e.message);});}
   function markReviewed(id){if(state.detail?.kind!=='commit')return;const r=review();if(r.active&&!r.files.includes(id)){r.files.push(id);saveReview(r);}decorateFiles();}
   function decorateFiles(){if(state.detail?.kind!=='commit')return;const r=review();$('files').querySelectorAll('[data-file]').forEach(el=>{const done=r.active&&r.files.includes(el.dataset.file);el.classList.toggle('review-needed',r.active&&!done);el.classList.toggle('review-done',done);});const b=$('review-toggle');if(b)b.textContent=r.active?`结束审阅 · ${state.detail.files.filter(f=>r.files.includes(f.id)).length}/${state.detail.files.length}`:'开始审阅';}
   async function fileView(revision){const d=state.detail;if(!state.file||!d)return;const result=await call('file_content',{input:{...state.detailInput,fileId:state.file,revision,version:d.version}});menu(`<h2>${esc(result.path||state.file)}</h2><p>${esc(revision==='current'?'当前文件':revision==='before'?'修改前':'修改后')}${result.truncated?' · 仅显示前 256 KiB':''}</p>${result.binary?'<p>二进制文件无法显示文本。</p>':`<pre class="file-content">${esc(result.text)}</pre>`}`);}
@@ -146,7 +150,7 @@ export function installFeatures(ctx) {
     if(op==='create-pr'){const c=config();if(!c.prUrl)throw new Error('请先在仓库设置中配置 PR／MR URL 模板。');return openUrl(c.prUrl.replaceAll('{branch}',encodeURIComponent(args.branch||branchName())));}
     return action(op,args);
   }
-  document.addEventListener('click',e=>{const b=e.target.closest('[data-feature]');if(!b)return;e.preventDefault();e.stopImmediatePropagation();Promise.resolve(handle(b.dataset.feature,JSON.parse(b.dataset.args||'{}'))).catch(error=>notify(error.message));},true);
+  document.addEventListener('click',e=>{const b=e.target.closest('[data-feature]');if(!b)return;e.preventDefault();e.stopImmediatePropagation();Promise.resolve(handle(b.dataset.feature,JSON.parse(b.dataset.args||'{}'))).catch(error=>{if(!isStaleWorkspace(error))notify(error.message);});},true);
   $('files').addEventListener('contextmenu',e=>{const b=e.target.closest('[data-file]');if(b){e.preventDefault();fileMenu(b.dataset.file);}});
   $('detail-tabs').addEventListener('click',e=>{if(e.target.id==='review-toggle'){const r=review();saveReview({...r,active:!r.active});decorateFiles();}if(e.target.id==='review-reset'){saveReview({active:true,files:[]});decorateFiles();}});
   $('more').addEventListener('click',()=>{$('menu-content').insertAdjacentHTML('beforeend','<hr>'+button('远程仓库','remotes')+button('Stash','stashes')+button('历史筛选','filters')+button('仓库设置','settings')+button('导出仓库配置','export-config')+button('导入仓库配置','import-config'));});
@@ -171,10 +175,18 @@ export function installFeatures(ctx) {
     let drag=null;
     handle.onpointerdown=e=>{e.preventDefault();drag={x:e.clientX,width:cell.getBoundingClientRect().width};handle.setPointerCapture(e.pointerId);};
     handle.onpointermove=e=>{if(drag)$('app').style.setProperty(`--${key}-width`,`${Math.max(40,Math.min(1000,drag.width+e.clientX-drag.x))}px`);};
-    handle.onpointerup=async e=>{if(!drag)return;const width=Math.max(40,Math.min(1000,drag.width+e.clientX-drag.x));drag=null;try{await loadPreferences();await saveConfig({...config(),columnWidths:{...config().columnWidths,[key]:width}});}catch(error){notify(error.message);}};
-    handle.onkeydown=async e=>{if(!['ArrowLeft','ArrowRight'].includes(e.key))return;e.preventDefault();try{await loadPreferences();const width=Math.max(40,Math.min(1000,cell.getBoundingClientRect().width+(e.key==='ArrowLeft'?-10:10)));await saveConfig({...config(),columnWidths:{...config().columnWidths,[key]:width}});}catch(error){notify(error.message);}};
+    handle.onpointerup=async e=>{const session=workspace.capture();if(!drag)return;const width=Math.max(40,Math.min(1000,drag.width+e.clientX-drag.x));drag=null;try{await loadPreferences();session.assert();await saveConfig({...config(),columnWidths:{...config().columnWidths,[key]:width}});}catch(error){if(!isStaleWorkspace(error))notify(error.message);}};
+    handle.onkeydown=async e=>{const session=workspace.capture();if(!['ArrowLeft','ArrowRight'].includes(e.key))return;e.preventDefault();try{await loadPreferences();session.assert();const width=Math.max(40,Math.min(1000,cell.getBoundingClientRect().width+(e.key==='ArrowLeft'?-10:10)));await saveConfig({...config(),columnWidths:{...config().columnWidths,[key]:width}});}catch(error){if(!isStaleWorkspace(error))notify(error.message);}};
   }
   return {
+    resetRepository(){
+      filters={};metadata=null;metadataRepo=null;formSpec=null;preparation=null;busy=false;loading=false;
+      preferences={config:{},reviews:{}};preferencesRepo=null;preferenceLoading=null;preferenceWrites=Promise.resolve();
+      if(dialog.open)dialog.close();
+      for(const id of ['workflow-title','workflow-fields','workflow-error','workflow-preview'])$(id).textContent='';
+      $('workflow-preview').hidden=true;$('workflow-cancel').disabled=false;$('workflow-submit').disabled=false;$('workflow-submit').textContent='检查操作';
+      applyColumnWidths();
+    },
     loadPreferences,
     snapshotOptions:()=>filters,
     resetFilters:()=>{filters={};},

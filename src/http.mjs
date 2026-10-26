@@ -5,10 +5,12 @@ import { filesDetail, fileDiff, resolveRef, prepareAction, executeAction } from 
 import { repositoryInfo, commitInfo, refInfo, reviewFiles, reviewDiff, fileContent } from './review.mjs';
 import { readPreferences, savePreferences } from './preferences.mjs';
 
-export async function startHttp({ repositoryPath, html, port = 0, devHarness = false }) {
+export async function startHttp({ repositoryPath, html, port = 0, devHarness = false, now = Date.now }) {
   const { root } = await resolveRepository(repositoryPath);
   const token = randomBytes(32).toString('hex');
   let origin;
+  let lastActivity = now();
+  let activeRequests = 0;
   const server = createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -29,6 +31,8 @@ export async function startHttp({ repositoryPath, html, port = 0, devHarness = f
     if (supplied.length !== token.length || !timingSafeEqual(supplied, Buffer.from(token))) {
       res.writeHead(401).end('Unauthorized'); return;
     }
+    lastActivity = now();
+    activeRequests++;
     try {
       let data;
       const writable = ['/api/prepare', '/api/execute', '/api/save_preferences'].includes(url.pathname);
@@ -64,6 +68,9 @@ export async function startHttp({ repositoryPath, html, port = 0, devHarness = f
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(data));
     } catch (error) {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: error.message }));
+    } finally {
+      activeRequests--;
+      lastActivity = now();
     }
   });
   await new Promise((resolve, reject) => {
@@ -71,5 +78,12 @@ export async function startHttp({ repositoryPath, html, port = 0, devHarness = f
     server.listen(port, '127.0.0.1', resolve);
   });
   origin = `http://127.0.0.1:${server.address().port}`;
-  return { server, url: `${origin}/#token=${token}`, origin, token };
+  return { server, url: `${origin}/#token=${token}`, origin, token,
+    get lastActivity() { return lastActivity; },
+    get activeRequests() { return activeRequests; },
+    close: () => new Promise((resolve, reject) => {
+      server.close(error => error && error.code !== 'ERR_SERVER_NOT_RUNNING' ? reject(error) : resolve());
+      server.closeIdleConnections();
+    }),
+  };
 }

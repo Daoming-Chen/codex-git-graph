@@ -1,0 +1,50 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { repositoryContext } from '../src/workspace-context.mjs';
+import { createMcpServer } from '../src/server.mjs';
+import { createFixture } from './fixture.mjs';
+
+const stub = roots => ({ getClientCapabilities: () => ({ roots: {} }), listRoots: async () => ({ roots }) });
+const resolve = async input => ({ root: input });
+test('context distinguishes missing, ambiguous, invalid roots and explicit overrides', async () => {
+  const noRoots = { getClientCapabilities: () => ({}) };
+  assert.equal((await repositoryContext(noRoots, { environmentPath: '', resolve })).context.status, 'unavailable');
+  const one = [{ uri: pathToFileURL(process.cwd()).href }];
+  assert.equal((await repositoryContext(stub(one), { environmentPath: '', resolve })).repositoryPath, process.cwd());
+  assert.equal((await repositoryContext(stub([...one, { uri: pathToFileURL(process.env.TEMP || '/tmp').href }]), { environmentPath: '', resolve })).context.status, 'ambiguous');
+  const invalid = await repositoryContext(stub([{ uri: 'https://example.test/' }]), { environmentPath: '', resolve });
+  assert.equal(invalid.context.status, 'unavailable');
+  assert.equal(invalid.needsRepository, true);
+  const fail = { getClientCapabilities: () => ({ roots: {} }), listRoots: async () => { throw new Error('host denied'); } };
+  assert.equal((await repositoryContext(fail, { environmentPath: '', resolve })).context.status, 'error');
+  assert.equal((await repositoryContext(fail, { repositoryPath: 'explicit', resolve })).repositoryPath, 'explicit');
+  assert.equal((await repositoryContext(noRoots, { environmentPath: 'configured', resolve })).context.source, 'environment');
+});
+
+test('MCP resolves changing roots and advertises only open to the model', async t => {
+  const fixture = await createFixture();
+  const server = createMcpServer('<title>Context</title>');
+  const client = new Client({ name: 'workspace-host', version: '1' }, { capabilities: { roots: { listChanged: true } } });
+  let roots = [{ uri: pathToFileURL(fixture.root).href }];
+  client.setRequestHandler(ListRootsRequestSchema, async () => ({ roots }));
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  t.after(async () => { await client.close(); await server.close(); });
+  await server.mcp.connect(a); await client.connect(b);
+  const tools = (await client.listTools()).tools;
+  assert.deepEqual(tools.filter(tool => tool._meta.ui.visibility.includes('model')).map(tool => tool.name), ['git_graph_open']);
+  const call = name => client.callTool({ name: `git_graph_${name}`, arguments: {} });
+  const opened = (await call('open')).structuredContent;
+  assert.equal(opened.repository.path, fixture.root);
+  assert.equal(opened.context.source, 'roots');
+  roots = [{ uri: pathToFileURL(fixture.linked).href }];
+  await client.sendRootsListChanged();
+  assert.equal((await call('context')).structuredContent.repositoryPath, fixture.linked);
+  roots.push({ uri: pathToFileURL(fixture.root).href });
+  assert.equal((await call('open')).structuredContent.context.status, 'ambiguous');
+  roots = [{ uri: 'file:///this-root-does-not-exist' }];
+  assert.equal((await call('context')).structuredContent.context.status, 'unavailable');
+});

@@ -11,7 +11,7 @@ import { startHttp } from '../src/http.mjs';
 import { randomUUID } from 'node:crypto';
 import { git } from '../src/git.mjs';
 
-const expectedTools = ['git_graph_open', 'git_graph_commit', 'git_graph_worktree', 'git_graph_files', 'git_graph_diff', 'git_graph_file_content', 'git_graph_repository_info', 'git_graph_commit_info', 'git_graph_ref_info', 'git_graph_resolve', 'git_graph_prepare', 'git_graph_execute', 'git_graph_preferences', 'git_graph_save_preferences'].sort();
+const expectedTools = ['git_graph_open', 'git_graph_context', 'git_graph_commit', 'git_graph_worktree', 'git_graph_files', 'git_graph_diff', 'git_graph_file_content', 'git_graph_repository_info', 'git_graph_commit_info', 'git_graph_ref_info', 'git_graph_resolve', 'git_graph_prepare', 'git_graph_execute', 'git_graph_preferences', 'git_graph_save_preferences'].sort();
 
 let f;
 before(async () => { f = await createFixture(); });
