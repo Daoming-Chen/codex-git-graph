@@ -17,22 +17,22 @@ import { createPanelManager } from './panel-manager.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 async function readUi() {
-  for (const filename of [path.join(here, 'graph.html'), path.join(here, '../plugins/codex-git-graph/dist/graph.html')]) {
+  for (const filename of [path.join(here, 'graph.html'), path.join(here, '../plugins/workgraph/dist/graph.html')]) {
     try { return await readFile(filename, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   throw new Error('请先运行 npm run build，生成 WorkGraph 面板。');
 }
 
 export function createMcpServer(html, { contextOptions = {} } = {}) {
-  const mcp = new McpServer({ name: 'codex-git-graph', version: '0.3.0' });
-  const uri = 'ui://git-graph/panel.html';
+  const mcp = new McpServer({ name: 'workgraph', version: '0.3.0' });
+  const uri = 'ui://workgraph/panel.html';
   const panels = createPanelManager({ html });
   mcp.server.onclose = () => { void panels.close(); };
   // Context lookups always query roots afresh, so changes require no cached-state
   // invalidation. Accept the standard notification without guessing a thread id.
   mcp.server.setNotificationHandler(RootsListChangedNotificationSchema, () => {});
   const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
-  registerAppResource(mcp, 'git-graph-panel', uri, {}, async () => ({ contents: [{
+  registerAppResource(mcp, 'workgraph-panel', uri, {}, async () => ({ contents: [{
     uri, mimeType: RESOURCE_MIME_TYPE, text: html,
     _meta: { ui: { prefersBorder: false, csp: { connectDomains: [], resourceDomains: [] } } },
   }] }));
@@ -40,14 +40,14 @@ export function createMcpServer(html, { contextOptions = {} } = {}) {
     try { return { content: [], structuredContent: await fn(args, extra) }; }
     catch (error) { return { isError: true, content: [{ type: 'text', text: error.message }] }; }
   };
-  const repo = { repositoryPath: z.string().optional().describe('Absolute repository path override. Open automatically resolves the local Codex conversation/project, a single local Git MCP root, or GIT_GRAPH_REPO.') };
+  const repo = { repositoryPath: z.string().optional().describe('Absolute repository path override. Open automatically resolves the local Codex conversation/project, a single local Git MCP root, or WORKGRAPH_REPO.') };
   const requiredRepo = input => {
-    const selected = input || process.env.GIT_GRAPH_REPO;
+    const selected = input || process.env.WORKGRAPH_REPO;
     if (!selected) throw new Error('请先选择仓库。');
     return selected;
   };
-  registerAppTool(mcp, 'git_graph_open', {
-    title: 'WorkGraph', description: 'Open Git history and local worktree review. Automatically resolves the local Codex conversation or selected project; also accepts an explicit repository path, a single local Git MCP root, or GIT_GRAPH_REPO. Returns a loopback browser panel URL.',
+  registerAppTool(mcp, 'workgraph_open', {
+    title: 'WorkGraph', description: 'Open Git history and local worktree review. Automatically resolves the local Codex conversation or selected project; also accepts an explicit repository path, a single local Git MCP root, or WORKGRAPH_REPO. Returns a loopback browser panel URL.',
     inputSchema: { ...repo, limit: z.number().int().min(1).max(2000).default(300), offset:z.number().int().nonnegative().default(0), scope: z.string().default(''), scopes:z.array(z.string()).optional(),branchGlob:z.string().optional(),firstParent:z.boolean().optional(),includeReflogs:z.boolean().optional(),showRemotes:z.boolean().optional(),showTags:z.boolean().optional(),showStashes:z.boolean().optional() }, annotations,
     _meta: { ui: { resourceUri: uri, visibility: ['app', 'model'] }, 'openai/ui': { entrypoints: [{ type: 'thread' }] } },
   }, safely(async ({ repositoryPath, ...options }, extra) => {
@@ -58,37 +58,37 @@ export function createMcpServer(html, { contextOptions = {} } = {}) {
     const panel = await panels.open(key);
     return { ...data, context: binding.context, panelUrl: panel.url };
   }));
-  registerAppTool(mcp, 'git_graph_context', {
-    title: '读取 Workspace 上下文', description: 'Resolve the current local repository from per-request Codex conversation metadata and local project state, standardized MCP roots, or GIT_GRAPH_REPO.',
+  registerAppTool(mcp, 'workgraph_context', {
+    title: '读取 Workspace 上下文', description: 'Resolve the current local repository from per-request Codex conversation metadata and local project state, standardized MCP roots, or WORKGRAPH_REPO.',
     inputSchema: {}, annotations, _meta: { ui: { resourceUri: uri, visibility: ['app'] } },
   }, safely((args, extra) => repositoryContext(mcp.server, { ...contextOptions, meta: extra?._meta, signal: extra?.signal })));
-  registerAppTool(mcp, 'git_graph_work_graph', {
+  registerAppTool(mcp, 'workgraph_work_graph', {
     title: '读取工作进展', description: 'Read explicit work records and real local Git commits.',
     inputSchema: { ...repo }, annotations, _meta: { ui: { resourceUri: uri, visibility: ['app'] } },
   }, safely(({ repositoryPath }) => readWorkGraph(requiredRepo(repositoryPath))));
-  registerAppTool(mcp, 'git_graph_commit', {
+  registerAppTool(mcp, 'workgraph_commit', {
     title: '查看提交', description: 'Read commit details and a bounded patch; merges compare to the first parent.',
     inputSchema: { ...repo, hash: z.string().regex(/^[a-f0-9]{40,64}$/) }, annotations,
     _meta: { ui: { resourceUri: uri, visibility: ['app'] } },
   }, safely(({ repositoryPath, hash }) => commitDetail(requiredRepo(repositoryPath), hash)));
-  registerAppTool(mcp, 'git_graph_worktree', {
+  registerAppTool(mcp, 'workgraph_worktree', {
     title: '查看 Worktree 改动', description: 'Read staged and unstaged diffs plus untracked filenames for a worktree in this repository.',
     inputSchema: { ...repo, worktreePath: z.string() }, annotations,
     _meta: { ui: { resourceUri: uri, visibility: ['app'] } },
   }, safely(({ repositoryPath, worktreePath }) => worktreeDetail(requiredRepo(repositoryPath), worktreePath)));
   const input = z.object({ worktreePath: z.string().optional(), hash: z.string().optional(), a: z.string().optional(), b: z.string().optional(), parent: z.number().int().optional(), fileId: z.string().optional(), version: z.string().optional(),revision:z.enum(['current','before','after']).optional() }).strict();
-  for (const [name, fn] of [['files', reviewFiles], ['diff', reviewDiff], ['file_content',fileContent]]) registerAppTool(mcp, `git_graph_${name}`, {
+  for (const [name, fn] of [['files', reviewFiles], ['diff', reviewDiff], ['file_content',fileContent]]) registerAppTool(mcp, `workgraph_${name}`, {
     title: name === 'files' ? '读取变更文件' : '读取单文件差异', description: 'Read structured changes or one listed file diff.', inputSchema: { ...repo, input }, annotations,
     _meta: { ui: { resourceUri: uri, visibility: ['app'] } },
   }, safely(({ repositoryPath, input }) => fn(requiredRepo(repositoryPath), input)));
-  for(const [name,fn,field] of [['repository_info',repositoryInfo,null],['commit_info',commitInfo,'hash'],['ref_info',refInfo,'ref']]) registerAppTool(mcp,`git_graph_${name}`,{
+  for(const [name,fn,field] of [['repository_info',repositoryInfo,null],['commit_info',commitInfo,'hash'],['ref_info',refInfo,'ref']]) registerAppTool(mcp,`workgraph_${name}`,{
     title:{repository_info:'查看远程仓库和 Stash',commit_info:'查看提交元数据',ref_info:'查看引用元数据'}[name],description:'Read repository metadata without modifying Git state.',inputSchema:{...repo,...(field?{[field]:z.string()}: {})},annotations,_meta:{ui:{resourceUri:uri,visibility:['app']}},
   },safely(args=>fn(requiredRepo(args.repositoryPath),field?args[field]:undefined)));
-  registerAppTool(mcp, 'git_graph_resolve', { title: '解析引用', description: 'Resolve a full ref or immutable SHA.', inputSchema: { ...repo, ref: z.string() }, annotations, _meta: { ui: { resourceUri: uri, visibility: ['app'] } } }, safely(({ repositoryPath, ref }) => resolveRef(requiredRepo(repositoryPath), ref)));
-  registerAppTool(mcp, 'git_graph_preferences', {title:'读取仓库偏好与审阅进度',description:'Read durable plugin preferences and review progress shared by the repository worktrees.',inputSchema:repo,annotations,_meta:{ui:{resourceUri:uri,visibility:['app']}}},safely(({repositoryPath})=>readPreferences(requiredRepo(repositoryPath))));
-  registerAppTool(mcp, 'git_graph_save_preferences', {title:'保存仓库偏好与审阅进度',description:'Save plugin-only settings and review progress in the Git common directory. Does not modify refs, index, Git configuration or working files.',inputSchema:{...repo,input:z.record(z.string(),z.unknown())},annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false},_meta:{ui:{resourceUri:uri,visibility:['app']}}},safely(({repositoryPath,input})=>savePreferences(requiredRepo(repositoryPath),input)));
-  registerAppTool(mcp, 'git_graph_prepare', { title: '检查 Git 操作', description: 'Validate and prepare a typed Git action; does not execute it. Destructive actions require explicit confirmation. Expires after two minutes.', inputSchema: { ...repo, action: z.enum(actionNames), payload: z.record(z.string(), z.unknown()), expectedVersion: z.string().optional() }, annotations, _meta: { ui: { resourceUri: uri, visibility: ['app'] } } }, safely(({ repositoryPath, action, payload, expectedVersion }) => prepareAction(requiredRepo(repositoryPath), action, payload, expectedVersion)));
-  registerAppTool(mcp, 'git_graph_execute', { title: '执行已检查的 Git 操作', description: 'Execute a prepared action once with state revalidation. Can modify local and remote Git state, rewrite history, or discard explicitly selected changes. Runs normal Git hooks.', inputSchema: { ...repo, actionId: z.string().uuid(), operationId: z.string().uuid() }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }, _meta: { ui: { resourceUri: uri, visibility: ['app'] } } }, safely(({ repositoryPath, actionId, operationId }) => executeAction(requiredRepo(repositoryPath), actionId, operationId)));
+  registerAppTool(mcp, 'workgraph_resolve', { title: '解析引用', description: 'Resolve a full ref or immutable SHA.', inputSchema: { ...repo, ref: z.string() }, annotations, _meta: { ui: { resourceUri: uri, visibility: ['app'] } } }, safely(({ repositoryPath, ref }) => resolveRef(requiredRepo(repositoryPath), ref)));
+  registerAppTool(mcp, 'workgraph_preferences', {title:'读取仓库偏好与审阅进度',description:'Read durable plugin preferences and review progress shared by the repository worktrees.',inputSchema:repo,annotations,_meta:{ui:{resourceUri:uri,visibility:['app']}}},safely(({repositoryPath})=>readPreferences(requiredRepo(repositoryPath))));
+  registerAppTool(mcp, 'workgraph_save_preferences', {title:'保存仓库偏好与审阅进度',description:'Save plugin-only settings and review progress in the Git common directory. Does not modify refs, index, Git configuration or working files.',inputSchema:{...repo,input:z.record(z.string(),z.unknown())},annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false},_meta:{ui:{resourceUri:uri,visibility:['app']}}},safely(({repositoryPath,input})=>savePreferences(requiredRepo(repositoryPath),input)));
+  registerAppTool(mcp, 'workgraph_prepare', { title: '检查 Git 操作', description: 'Validate and prepare a typed Git action; does not execute it. Destructive actions require explicit confirmation. Expires after two minutes.', inputSchema: { ...repo, action: z.enum(actionNames), payload: z.record(z.string(), z.unknown()), expectedVersion: z.string().optional() }, annotations, _meta: { ui: { resourceUri: uri, visibility: ['app'] } } }, safely(({ repositoryPath, action, payload, expectedVersion }) => prepareAction(requiredRepo(repositoryPath), action, payload, expectedVersion)));
+  registerAppTool(mcp, 'workgraph_execute', { title: '执行已检查的 Git 操作', description: 'Execute a prepared action once with state revalidation. Can modify local and remote Git state, rewrite history, or discard explicitly selected changes. Runs normal Git hooks.', inputSchema: { ...repo, actionId: z.string().uuid(), operationId: z.string().uuid() }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }, _meta: { ui: { resourceUri: uri, visibility: ['app'] } } }, safely(({ repositoryPath, actionId, operationId }) => executeAction(requiredRepo(repositoryPath), actionId, operationId)));
   let closing;
   return { mcp, close: () => closing ??= (async () => {
     try { await panels.close(); }
@@ -101,7 +101,7 @@ async function main() {
   const get = flag => args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;
   const html = await readUi();
   if (args.includes('--http')) {
-    const panel = await startHttp({ repositoryPath: path.resolve(get('--repo') || process.env.GIT_GRAPH_REPO || process.cwd()), html, port: Number(get('--port') || 0) });
+    const panel = await startHttp({ repositoryPath: path.resolve(get('--repo') || process.env.WORKGRAPH_REPO || process.cwd()), html, port: Number(get('--port') || 0) });
     console.log(`WorkGraph: ${panel.url}`);
     process.once('SIGINT', () => panel.server.close());
     process.once('SIGTERM', () => panel.server.close());

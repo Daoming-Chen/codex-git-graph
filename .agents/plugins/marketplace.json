@@ -1,10 +1,10 @@
 {
-  "name": "codex-git-graph-local",
-  "interface": { "displayName": "Git Graph · 本地开发" },
+  "name": "workgraph-local",
+  "interface": { "displayName": "WorkGraph · 本地开发" },
   "plugins": [
     {
-      "name": "codex-git-graph",
-      "source": { "source": "local", "path": "./plugins/codex-git-graph" },
+      "name": "workgraph",
+      "source": { "source": "local", "path": "./plugins/workgraph" },
       "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
       "category": "Productivity"
     }

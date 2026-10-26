@@ -35,8 +35,8 @@ test('MCP resolves changing roots and advertises only open to the model', async 
   t.after(async () => { await client.close(); await server.close(); });
   await server.mcp.connect(a); await client.connect(b);
   const tools = (await client.listTools()).tools;
-  assert.deepEqual(tools.filter(tool => tool._meta.ui.visibility.includes('model')).map(tool => tool.name), ['git_graph_open']);
-  const call = name => client.callTool({ name: `git_graph_${name}`, arguments: {} });
+  assert.deepEqual(tools.filter(tool => tool._meta.ui.visibility.includes('model')).map(tool => tool.name), ['workgraph_open']);
+  const call = name => client.callTool({ name: `workgraph_${name}`, arguments: {} });
   const opened = (await call('open')).structuredContent;
   assert.equal(opened.repository.path, fixture.root);
   assert.equal(opened.context.source, 'roots');

@@ -1,6 +1,6 @@
 # 架构与安全边界
 
-本文说明当前源码的职责与边界。用户操作见[使用指南](usage.md)，安装见[安装与打包](install-lifecycle.md)。历史验证结果独立保存在归档中，不作为当前版本的验收结论。
+本文说明当前源码的职责与边界。用户操作见[使用指南](usage.md)，安装见[安装与打包](install-lifecycle.md)。验证结论以当前提交的实际测试结果为准。
 
 ## 模块职责
 
@@ -28,7 +28,7 @@ MCP 模式优先使用显式 `repositoryPath`，无效时直接报错。没有�
 
 没有本机适配信息时，读取宿主支持的标准 MCP roots：只接受可解析为本地 Git 仓库的 `file:` URI，并对仓库路径去重。唯一候选自动绑定；多个候选、非空 roots 无可用仓库、读取失败或 roots 超过 32 项时提示选择，不回退到环境变量。
 
-宿主不支持 roots 或返回空列表时，才尝试 `GIT_GRAPH_REPO`。MCP 模式不会用进程当前目录猜测仓库。直接 HTTP 模式的路径顺序见[故障排查](troubleshooting.md#打开的仓库不对或要求选择仓库)。
+宿主不支持 roots 或返回空列表时，才尝试 `WORKGRAPH_REPO`。MCP 模式不会用进程当前目录猜测仓库。直接 HTTP 模式的路径顺序见[故障排查](troubleshooting.md#打开的仓库不对或要求选择仓库)。
 
 MCP Apps 面板在连接、宿主上下文变化、重新聚焦时检查上下文，前台每 5 秒串行检查一次，不定时重读同一仓库的 Git 历史。显式路径或手动选择不会被首次上下文查询立即覆盖，后续宿主上下文变化才触发重新绑定或选择。
 
@@ -38,7 +38,7 @@ MCP Apps 面板在连接、宿主上下文变化、重新聚焦时检查上下�
 
 HTTP 服务绑定单个仓库，只监听 `127.0.0.1`，API 要求随机 Bearer 令牌并校验 Host／Origin，不开放 CORS。GET 只查询，写入使用 POST JSON。
 
-模型只使用 `git_graph_open` 打开面板；上下文、详情、偏好和 Git 操作接口声明为仅供 App 使用。工具可见性由宿主执行，不是额外的仓库授权隔离，MCP 仍继承进程文件权限。
+模型只使用 `workgraph_open` 打开面板；上下文、详情、偏好和 Git 操作接口声明为仅供 App 使用。工具可见性由宿主执行，不是额外的仓库授权隔离，MCP 仍继承进程文件权限。
 
 ## Git 写入
 
@@ -52,7 +52,7 @@ Git 使用参数数组和 literal pathspec；目标 Worktree 校验 common dir�
 
 用户可见的保存位置和保留期限见[使用指南](usage.md#设置与审阅进度)。偏好写入独立于 Git prepare/execute，不修改 refs、index、Git config 或工作文件。
 
-仓库状态文件限 1 MiB，拒绝符号链接、无效 JSON、未知字段和超限数据，不静默覆盖无效文件。写入使用临时文件替换，按 common dir 在本进程内排队，多进程不共享队列。配置导入上限为 64 KiB。浏览器布局使用 `localStorage` 键 `git-graph-layout-v3`，不属于仓库配置导出内容。
+仓库状态文件限 1 MiB，拒绝符号链接、无效 JSON、未知字段和超限数据，不静默覆盖无效文件。写入使用临时文件替换，按 common dir 在本进程内排队，多进程不共享队列。配置导入上限为 64 KiB。浏览器布局使用 `localStorage` 键 `workgraph-layout-v3`，不属于仓库配置导出内容。
 
 ## 服务生命周期与性能
 
@@ -64,4 +64,4 @@ Git 使用参数数组和 literal pathspec；目标 Worktree 校验 common dir�
 
 ## 工作进展读取
 
-`src/work-graph.mjs` 读取仓库 `.workgraph.json` 与 HEAD 最近 300 条提交，按完整 SHA 或 `Work-Item` 标识关联工作。HTTP `/api/work_graph` 与 App 工具 `git_graph_work_graph` 共用读取逻辑。`src/ui/work-live.js` 使用现有仓库请求隔离，切换时清空记录并丢弃旧响应。工作项状态来自记录，验证和用户接受不由提交推断；范围与限制见 [WorkGraph 使用说明](work-graph.md)。
+`src/work-graph.mjs` 读取仓库 `.workgraph.json` 与 HEAD 最近 300 条提交，按完整 SHA 或 `Work-Item` 标识关联工作。HTTP `/api/work_graph` 与 App 工具 `workgraph_work_graph` 共用读取逻辑。`src/ui/work-live.js` 使用现有仓库请求隔离，切换时清空记录并丢弃旧响应。工作项状态来自记录，验证和用户接受不由提交推断；范围与限制见 [WorkGraph 使用说明](work-graph.md)。

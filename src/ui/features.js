@@ -1,4 +1,4 @@
-// Git Graph workflow controls. The graph remains the owner of selection and layout.
+// WorkGraph workflow controls. The graph remains the owner of selection and layout.
 export function installFeatures(ctx) {
   const {state,$,esc,call,workspace,isStaleWorkspace,menu,closeMenu,refresh,showDetail,selectFile,notify,active,renderHistory}=ctx;
   const button=(label,op,data={})=>`<button data-feature="${op}" data-args="${esc(JSON.stringify(data))}">${esc(label)}</button>`;
@@ -125,7 +125,7 @@ export function installFeatures(ctx) {
   }
   function safeUrl(value){const url=new URL(value);if(!['http:','https:'].includes(url.protocol))throw new Error('链接仅支持 HTTP 或 HTTPS。');return url.href;}
   function openUrl(value){window.open(safeUrl(value),'_blank','noopener,noreferrer');}
-  function exportConfig(){const blob=new Blob([JSON.stringify(config(),null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='git-graph-settings.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+  function exportConfig(){const blob=new Blob([JSON.stringify(config(),null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='workgraph-settings.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
   function importConfig(){const input=document.createElement('input');input.type='file';input.accept='.json';input.onchange=async()=>{const session=workspace.capture();try{const file=input.files[0];if(!file||file.size>65536)throw new Error('配置文件不能超过 64 KiB。');const value=JSON.parse(await file.text());session.assert();const allowed=['issueUrl','prUrl','dateFormat','autoLoad','fileTree','columnWidths'];if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>!allowed.includes(k)))throw new Error('配置字段无效。');for(const key of ['issueUrl','prUrl']){if(key in value&&typeof value[key]!=='string')throw new Error('URL 模板必须是文本。');}for(const key of ['issueUrl','prUrl'])if(value[key])safeUrl(value[key].replaceAll('{id}','1').replaceAll('{branch}','main'));if(value.dateFormat&&!['short','full','relative'].includes(value.dateFormat))throw new Error('日期格式无效。');for(const key of ['autoLoad','fileTree'])if(key in value&&typeof value[key]!=='boolean')throw new Error('配置类型无效。');await saveConfig(value);notify('仓库配置已导入。');renderHistory();}catch(e){if(!isStaleWorkspace(e))notify(e.message);}};input.click();}
   const reviewKey=()=>`${state.detail?.a||'root'}:${state.detail?.b||'root'}`;
   function review(){return preferences.reviews[reviewKey()]||{active:false,files:[]};}

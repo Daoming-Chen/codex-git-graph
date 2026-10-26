@@ -72,7 +72,7 @@ test('native empty-argument MCP open and polling use the request metadata across
   const [left, right] = InMemoryTransport.createLinkedPair();
   t.after(async () => { await client.close(); await server.close(); });
   await server.mcp.connect(left); await client.connect(right);
-  const call = (name, id) => client.callTool({ name: `git_graph_${name}`, arguments: {}, _meta: { thread_id: id, threadId: id } });
+  const call = (name, id) => client.callTool({ name: `workgraph_${name}`, arguments: {}, _meta: { thread_id: id, threadId: id } });
   const opened = (await call('open', a)).structuredContent;
   assert.equal(opened.repository.path, fixture.root);
   assert.equal(opened.context.source, 'codex-thread');

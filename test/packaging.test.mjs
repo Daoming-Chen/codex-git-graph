@@ -15,13 +15,22 @@ test('portable distribution launches after relocation outside the source checkou
   await rename(packaged, relocated);
   await assert.rejects(access(path.join(relocated, '.mcp.json')), { code: 'ENOENT' });
   const manifest = JSON.parse(await readFile(path.join(relocated, 'plugin.json'), 'utf8'));
-  assert.equal(manifest.name, 'codex-git-graph');
+  assert.equal(manifest.name, 'workgraph');
+  const pkg = JSON.parse(await readFile('package.json', 'utf8'));
+  const marketplace = JSON.parse(await readFile('.agents/plugins/marketplace.json', 'utf8'));
+  assert.equal(manifest.name, pkg.name);
+  assert.equal(manifest.version, pkg.version);
+  assert.equal(manifest.extensions['com.openai'].interface.displayName, 'WorkGraph');
+  assert.equal(marketplace.plugins[0].name, manifest.name);
+  assert.equal(marketplace.plugins[0].source.path, './plugins/workgraph');
+  assert.match(await readFile(path.join(relocated, 'skills/workgraph/SKILL.md'), 'utf8'), /`workgraph_open`/);
+  await assert.rejects(access(path.join(relocated, '.codex-plugin')), { code: 'ENOENT' });
   const portable = JSON.parse(await readFile(path.join(relocated, 'mcp.json'), 'utf8'));
-  assert.equal(portable.mcpServers.git_graph.command, 'node');
-  assert.deepEqual(portable.mcpServers.git_graph.args, ['${PLUGIN_ROOT}/dist/server.mjs']);
+  assert.equal(portable.mcpServers.workgraph.command, 'node');
+  assert.deepEqual(portable.mcpServers.workgraph.args, ['${PLUGIN_ROOT}/dist/server.mjs']);
   // SDK is a raw stdio client, not a plugin host. Apply only the documented
   // host placeholder here; this checks relocatability, not host installation.
-  const entry = portable.mcpServers.git_graph;
+  const entry = portable.mcpServers.workgraph;
   const config = { ...entry, args: entry.args.map(value => value.replaceAll('${PLUGIN_ROOT}', relocated)), cwd: entry.cwd.replaceAll('${PLUGIN_ROOT}', relocated) };
   assert.equal(config.cwd, relocated);
   for (let i = 0; i < 2; i++) {
@@ -31,8 +40,8 @@ test('portable distribution launches after relocation outside the source checkou
     transport.stderr?.on('data', chunk => { diagnostics += chunk; });
     t.after(() => client.close());
     await client.connect(transport);
-    assert.ok((await client.listTools()).tools.some(tool => tool.name === 'git_graph_open'), diagnostics);
-    const ui = await client.readResource({ uri: 'ui://git-graph/panel.html' });
+    assert.ok((await client.listTools()).tools.some(tool => tool.name === 'workgraph_open'), diagnostics);
+    const ui = await client.readResource({ uri: 'ui://workgraph/panel.html' });
     assert.match(ui.contents[0].text, /<!doctype html>/i);
     await client.close();
   }

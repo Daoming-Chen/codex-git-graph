@@ -5,7 +5,7 @@ export function installWorkGraph({call}) {
   let data, selected, query='', filter='全部', generation=0, request=0, detail=true;
   const toggle=document.createElement('button'); toggle.id='work-mode'; toggle.textContent='Git 历史'; $('repo-name').after(toggle);
   const brand=document.createElement('strong');brand.className='work-brand';brand.textContent='WorkGraph';toggle.before(brand);
-  const root=document.createElement('section');root.id='work-prototype';root.setAttribute('aria-label','仓库工作进展');
+  const root=document.createElement('section');root.id='work-view';root.setAttribute('aria-label','仓库工作进展');
   root.innerHTML='<div class="bar work-toolbar"><strong>工作进展</strong><span class="muted" id="work-project"></span><select id="work-filter" aria-label="工作状态筛选"><option>全部</option><option>进行中</option><option>已完成</option><option>已搁置</option><option>待开始</option></select><input id="work-search" class="grow" placeholder="搜索工作与提交" aria-label="搜索工作与提交"><button id="work-reload">刷新</button><button id="work-theme">主题</button></div><div class="work-lanes bar" id="work-lanes"></div><div class="work-layout"><section class="work-list"><div class="work-row table-head"><span>轨道</span><span>工作 / 提交</span><span>状态</span><span>时间</span></div><div id="work-rows"></div></section><aside id="work-detail" aria-label="工作详情"></aside></div><div class="work-footer muted"><span id="work-count"></span><span>本地真实数据</span></div>';
   $('workspace').before(root);
   const mode=on=>{$('app').classList.toggle('work-mode',on);toggle.textContent=on?'Git 历史':'工作进展';};

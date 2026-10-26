@@ -7,7 +7,7 @@ import { build } from 'esbuild';
 import { createWorkspaceSession } from '../src/ui/workspace.js';
 
 const source = await readFile(new URL('../src/ui/app.js', import.meta.url), 'utf8');
-const bundled = await build({ stdin:{contents:source.replace("import { App } from '@modelcontextprotocol/ext-apps';",'const App = globalThis.AppTest;')+'\nexport function testBridge(fn){app.callServerTool=args=>args.name==="git_graph_work_graph"?Promise.resolve({structuredContent:{repository:{name:args.arguments.repositoryPath},works:[],records:[],dirty:[]}}):fn(args);bridgeReady=Promise.resolve();}\nexport { state, switchRepository, call, receive, features, workspace, openAction, compare, refresh, showDetail, runAction, syncHostRepository };',resolveDir:fileURLToPath(new URL('../src/ui/',import.meta.url))}, bundle:true,write:false,format:'iife',globalName:'GraphTest',target:'es2022' });
+const bundled = await build({ stdin:{contents:source.replace("import { App } from '@modelcontextprotocol/ext-apps';",'const App = globalThis.AppTest;')+'\nexport function testBridge(fn){app.callServerTool=args=>args.name==="workgraph_work_graph"?Promise.resolve({structuredContent:{repository:{name:args.arguments.repositoryPath},works:[],records:[],dirty:[]}}):fn(args);bridgeReady=Promise.resolve();}\nexport { state, switchRepository, call, receive, features, workspace, openAction, compare, refresh, showDetail, runAction, syncHostRepository };',resolveDir:fileURLToPath(new URL('../src/ui/',import.meta.url))}, bundle:true,write:false,format:'iife',globalName:'GraphTest',target:'es2022' });
 function harness() {
   const nodes=new Map(),windowEvents=new Map(),timers=[];
   const node=id=>{
@@ -67,7 +67,7 @@ test('late snapshot, detail, and action preparation cannot affect the next works
 test('initial snapshot and missing-context fallback leave refresh available',async()=>{
   for(const response of [data('A'),{needsRepository:true}]){
     const {api,node}=harness();
-    api.testBridge(args=>Promise.resolve({structuredContent:args.name==='git_graph_preferences'?{config:{},reviews:{}}:response}));
+    api.testBridge(args=>Promise.resolve({structuredContent:args.name==='workgraph_preferences'?{config:{},reviews:{}}:response}));
     await api.refresh();
     assert.equal(node('refresh').disabled,false);
     if(response.needsRepository)assert.equal(node('repo-form').hidden,false);
@@ -78,7 +78,7 @@ test('initial snapshot and missing-context fallback leave refresh available',asy
 test('same-repository out-of-order snapshots keep the latest refresh',async()=>{
   const {api}=harness(),older=deferred(),newer=deferred();let snapshots=0;
   api.receive(data('A'));
-  api.testBridge(args=>args.name==='git_graph_preferences'?Promise.resolve({structuredContent:{config:{},reviews:{}}}):(++snapshots===1?older.promise:newer.promise));
+  api.testBridge(args=>args.name==='workgraph_preferences'?Promise.resolve({structuredContent:{config:{},reviews:{}}}):(++snapshots===1?older.promise:newer.promise));
   const first=api.refresh(),second=api.refresh();await tick();
   newer.resolve({structuredContent:{...data('A'),marker:'new'}});await second;
   older.resolve({structuredContent:{...data('A'),marker:'old'}});await first;
@@ -86,7 +86,7 @@ test('same-repository out-of-order snapshots keep the latest refresh',async()=>{
 });
 test('native result triggers a fresh read instead of rendering stale data, including path canonicalization',async()=>{
   const {api,host}=harness();api.switchRepository('A/../A');
-  api.testBridge(args=>Promise.resolve({structuredContent:args.name==='git_graph_preferences'?{config:{},reviews:{}}:{...data('A'),marker:'fresh'}}));
+  api.testBridge(args=>Promise.resolve({structuredContent:args.name==='workgraph_preferences'?{config:{},reviews:{}}:{...data('A'),marker:'fresh'}}));
   host.ontoolresult({structuredContent:{...data('A'),marker:'stale'}});await tick();
   assert.equal(api.state.repositoryPath,'A');assert.equal(api.state.data.marker,'fresh');
 });
@@ -109,7 +109,7 @@ test('column keyboard and pointer gestures cannot save into the next repository'
     const handle=node('.table-head .author').children[0];
     const result=gesture==='keyboard'?handle.onkeydown({key:'ArrowRight',preventDefault(){}}):(handle.onpointerdown({clientX:10,pointerId:1,preventDefault(){}}),handle.onpointerup({clientX:30}));
     await tick();api.receive(data('B'));pending.resolve({structuredContent:{config:{},reviews:{}}});await result;
-    assert.equal(calls.length,1,gesture);assert.equal(calls[0].name,'git_graph_preferences');
+    assert.equal(calls.length,1,gesture);assert.equal(calls[0].name,'workgraph_preferences');
   }
 });
 
@@ -119,7 +119,7 @@ test('cached column preferences still check the repository after the await bound
   await api.features.loadPreferences();
   const result=node('.table-head .author').children[0].onkeydown({key:'ArrowRight',preventDefault(){}});
   api.receive(data('B'));await result;
-  assert.equal(calls.filter(c=>c.name==='git_graph_save_preferences').length,0);
+  assert.equal(calls.filter(c=>c.name==='workgraph_save_preferences').length,0);
 });
 
 test('prepare resolution microtask cannot execute an action in a new workspace',async()=>{
@@ -127,7 +127,7 @@ test('prepare resolution microtask cannot execute an action in a new workspace',
   api.testBridge(args=>{calls.push(args);return pending.promise;});
   const running=api.runAction('stage',{worktreePath:'A',paths:['old']});await tick();
   pending.resolve({structuredContent:{actionId:'old'}});queueMicrotask(()=>api.receive(data('B')));
-  await running;assert.equal(api.state.repositoryPath,'B');assert.equal(calls.length,1);assert.equal(calls[0].name,'git_graph_prepare');
+  await running;assert.equal(api.state.repositoryPath,'B');assert.equal(calls.length,1);assert.equal(calls[0].name,'workgraph_prepare');
 });
 test('execute resolution microtask cannot render results into a new workspace',async()=>{
   const {api,node}=harness(),pending=deferred(),calls=[];api.receive(data('A'));

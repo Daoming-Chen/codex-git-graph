@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { git, resolveRepository } from './git.mjs';
 
-const filename = 'codex-git-graph-state.json';
+const filename = 'workgraph-state.json';
 const maxBytes = 1024 * 1024;
 const retention = 90 * 24 * 60 * 60 * 1000;
 const maxReviews = 2000, maxFiles = 5000;

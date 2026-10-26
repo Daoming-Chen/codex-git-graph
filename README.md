@@ -1,12 +1,10 @@
 # WorkGraph
 
-WorkGraph（原 Codex Git Graph）按工作项展示项目进展，将仓库中的工作记录关联到真实 Git 提交。当前版本支持读取工作状态、查看关联提交和差异，并保留 Git 提交图、分支和 Worktree 管理。
+WorkGraph按工作项展示项目进展，将仓库中的工作记录关联到真实 Git 提交。当前版本支持读取工作状态、查看关联提交和差异，并保留 Git 提交图、分支和 Worktree 管理。
 
 默认进入「工作进展」，读取当前仓库的 `.workgraph.json` 和 HEAD 最近 300 条提交。点击顶部「Git 历史」可切换到原有 Git 操作界面。工作记录需要手动维护，尚未实现自动记录、恢复点或自动验收。配置方法与数据边界见 [WorkGraph 使用说明](docs/work-graph.md)。
 
-现有 GitGraph UI 是后续界面的视觉基准。产品概念与实施前决策见[项目开发视图产品概念](docs/project-development-concept.md)。
-
-产品显示名称为 WorkGraph。为保持兼容，仓库地址、包名、插件目录与安装标识、`git_graph_*` 工具及现有配置存储名称暂时保留。
+现有 Git 历史界面是后续界面的视觉基准。产品概念与实施前决策见[项目开发视图产品概念](docs/project-development-concept.md)。
 
 ## 可以用来做什么
 
@@ -25,8 +23,8 @@ WorkGraph（原 Codex Git Graph）按工作项展示项目进展，将仓库中�
 在终端运行以下命令，将最后一行的路径替换为要查看的仓库：
 
 ```powershell
-git clone https://github.com/Daoming-Chen/codex-git-graph.git
-cd codex-git-graph
+git clone https://github.com/Daoming-Chen/codex-work-graph.git workgraph
+cd workgraph
 npm install
 npm run build
 npm start -- --repo "D:\path\to\repository"

@@ -10,7 +10,7 @@ const a = 'a'.repeat(40), b = 'b'.repeat(40), key = `${a}:${b}`;
 async function fixture() {
   const root = path.resolve('.test-output/preferences-' + randomUUID()); await mkdir(root, { recursive: true });
   await git(root, ['init', '-b', 'main']); await git(root, ['config', 'user.name', 'Fixture']); await git(root, ['config', 'user.email', 'fixture@example.test']);
-  return { root, file: path.join(root, '.git', 'codex-git-graph-state.json') };
+  return { root, file: path.join(root, '.git', 'workgraph-state.json') };
 }
 
 test('preferences survive new entry paths and share worktree common dir without changing Git state', async () => {
@@ -41,7 +41,7 @@ test('concurrent review updates are serialized and stale reviews expire after 90
   assert.equal(Object.keys(data.reviews).length, keys.length); assert.equal(data.config.autoLoad, true);
   for (let i = 0; i < keys.length; i++) assert.deepEqual(data.reviews[keys[i]].files, [`file-${i}.txt`]);
   assert.equal(Object.hasOwn(JSON.parse(await readFile(f.file, 'utf8')).reviews, expired), false);
-  assert.equal((await readdir(path.dirname(f.file))).filter(name => name.startsWith('codex-git-graph-state.json.') && name.endsWith('.tmp')).length, 0);
+  assert.equal((await readdir(path.dirname(f.file))).filter(name => name.startsWith('workgraph-state.json.') && name.endsWith('.tmp')).length, 0);
 });
 
 test('strict config and review schema reject malformed, oversized or unknown values without replacing data', async () => {

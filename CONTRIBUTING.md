@@ -31,7 +31,7 @@ npm run demo
 
 ## 报告问题与提交改动
 
-在 [GitHub Issues](https://github.com/Daoming-Chen/codex-git-graph/issues) 报告问题时，请提供版本或提交 SHA、操作系统、Node.js／Git／Codex 版本、启动方式、复现步骤，以及预期和实际结果。附上必要的错误信息或截图；分享前删除令牌、私有仓库地址和敏感文件内容。
+在 [GitHub Issues](https://github.com/Daoming-Chen/codex-work-graph/issues) 报告问题时，请提供版本或提交 SHA、操作系统、Node.js／Git／Codex 版本、启动方式、复现步骤，以及预期和实际结果。附上必要的错误信息或截图；分享前删除令牌、私有仓库地址和敏感文件内容。
 
 提交改动的基本流程：
 
@@ -42,7 +42,8 @@ npm run demo
 
 仓库目前没有项目 LICENSE，项目许可证尚未确定。第三方声明不等同于项目授权，以上贡献流程也不构成使用或分发授权。
 
-## 架构与历史资料
+## 架构与维护原则
 
-实现入口和安全约束见[架构与安全边界](docs/current-implementation.md)。`docs/review/` 是历史调研、设计和验收档案，不是当前使用说明；需要追溯时参阅[归档索引](docs/review/00-review-index.md)。
+实现入口和安全约束见[架构与安全边界](docs/current-implementation.md)。
 
+功能替换时同步删除废弃实现、测试、脚本和文档引用；不为已淘汰的原型或旧名称保留兼容层。设计决定更新到当前文档，历史截图和阶段性验收报告不提交到源码仓库。需要追溯时使用 Git 历史。

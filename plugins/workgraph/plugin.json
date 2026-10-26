@@ -1,13 +1,13 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-  "name": "codex-git-graph",
+  "name": "workgraph",
   "version": "0.3.0",
-  "description": "在侧边面板浏览 Git 历史、审阅文件差异，执行明确检查的 Git 操作。",
+  "description": "按工作项查看项目进展与关联提交，浏览 Git 历史、审阅差异并执行经过检查的 Git 操作。",
   "extensions": {
     "com.openai": {
       "interface": {
         "displayName": "WorkGraph",
-        "shortDescription": "可视化本地 Git 与 Worktree 状态",
+        "shortDescription": "查看工作进展、Git 历史与 Worktree 状态",
         "category": "Productivity",
         "capabilities": ["Read", "Write"],
         "defaultPrompt": ["打开当前仓库的 WorkGraph，显示所有 Worktree。"]

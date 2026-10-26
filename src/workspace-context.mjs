@@ -4,7 +4,7 @@ import { codexRepositoryHint } from './codex-context.mjs';
 
 // MCP roots are the only standardized filesystem context exposed by this SDK.
 // A root is a workspace boundary, not a guarantee of the active thread's repo.
-export async function repositoryContext(server, { repositoryPath, environmentPath = process.env.GIT_GRAPH_REPO, meta, signal, resolve = resolveRepository, codexHint = codexRepositoryHint } = {}) {
+export async function repositoryContext(server, { repositoryPath, environmentPath = process.env.WORKGRAPH_REPO, meta, signal, resolve = resolveRepository, codexHint = codexRepositoryHint } = {}) {
   const resolved = async (input, source) => {
     const { root } = await resolve(input);
     return { repositoryPath: root, needsRepository: false, context: { source, status: 'resolved', candidates: [{ path: root }] } };

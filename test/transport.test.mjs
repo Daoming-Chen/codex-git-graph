@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import test, { before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -11,7 +12,7 @@ import { startHttp } from '../src/http.mjs';
 import { randomUUID } from 'node:crypto';
 import { git } from '../src/git.mjs';
 
-const expectedTools = ['git_graph_work_graph', 'git_graph_open', 'git_graph_context', 'git_graph_commit', 'git_graph_worktree', 'git_graph_files', 'git_graph_diff', 'git_graph_file_content', 'git_graph_repository_info', 'git_graph_commit_info', 'git_graph_ref_info', 'git_graph_resolve', 'git_graph_prepare', 'git_graph_execute', 'git_graph_preferences', 'git_graph_save_preferences'].sort();
+const expectedTools = ['workgraph_work_graph', 'workgraph_open', 'workgraph_context', 'workgraph_commit', 'workgraph_worktree', 'workgraph_files', 'workgraph_diff', 'workgraph_file_content', 'workgraph_repository_info', 'workgraph_commit_info', 'workgraph_ref_info', 'workgraph_resolve', 'workgraph_prepare', 'workgraph_execute', 'workgraph_preferences', 'workgraph_save_preferences'].sort();
 
 let f;
 before(async () => { f = await createFixture(); });
@@ -50,45 +51,47 @@ test('loopback HTTP requires its token, enforces origin and exposes only the bou
   assert.equal((await fetch(`${panel.origin}/api/prepare`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ action:'shell', payload:{command:'whoami'} }) })).status,400);
 });
 test('MCP advertises thread entrypoint, serves UI and reads real Git data', async t => {
-  const server = createMcpServer('<!doctype html><title>Git Graph</title>');
+  const server = createMcpServer('<!doctype html><title>WorkGraph</title>');
   const client = new Client({ name: 'test', version: '1.0.0' });
   const [a, b] = InMemoryTransport.createLinkedPair();
   t.after(async () => { await client.close(); await server.close(); });
   await server.mcp.connect(a); await client.connect(b);
   const tools = await client.listTools();
   assert.deepEqual(tools.tools.map(t => t.name).sort(), expectedTools);
-  const work = await client.callTool({name:'git_graph_work_graph',arguments:{repositoryPath:f.root}});
+  const work = await client.callTool({name:'workgraph_work_graph',arguments:{repositoryPath:f.root}});
   assert.equal(work.structuredContent.repository.path,f.root);assert.ok(work.structuredContent.records.length>0);
-  const open = tools.tools.find(t => t.name === 'git_graph_open');
+  const open = tools.tools.find(t => t.name === 'workgraph_open');
   assert.deepEqual(open._meta['openai/ui'].entrypoints, [{ type: 'thread' }]);
-  assert.equal(tools.tools.find(t => t.name === 'git_graph_execute').annotations.readOnlyHint, false);
-  assert.equal(tools.tools.find(t => t.name === 'git_graph_execute').annotations.idempotentHint, true);
-  assert.ok(tools.tools.filter(t => !['git_graph_execute', 'git_graph_save_preferences'].includes(t.name)).every(t => t.annotations.readOnlyHint));
-  const preferences = tools.tools.find(t => t.name === 'git_graph_save_preferences');
+  assert.equal(tools.tools.find(t => t.name === 'workgraph_execute').annotations.readOnlyHint, false);
+  assert.equal(tools.tools.find(t => t.name === 'workgraph_execute').annotations.idempotentHint, true);
+  assert.ok(tools.tools.filter(t => !['workgraph_execute', 'workgraph_save_preferences'].includes(t.name)).every(t => t.annotations.readOnlyHint));
+  const preferences = tools.tools.find(t => t.name === 'workgraph_save_preferences');
   assert.deepEqual(preferences.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
-  const resources = await client.readResource({ uri: 'ui://git-graph/panel.html' });
+  const resources = await client.readResource({ uri: 'ui://workgraph/panel.html' });
   assert.match(resources.contents[0].mimeType, /mcp-app/);
-  const data = await client.callTool({ name: 'git_graph_open', arguments: { repositoryPath: f.root } });
+  const data = await client.callTool({ name: 'workgraph_open', arguments: { repositoryPath: f.root } });
   assert.equal(data.isError, undefined); assert.equal(data.structuredContent.worktrees.length, 3);
   assert.match(data.structuredContent.panelUrl, /^http:\/\/127\.0\.0\.1:\d+\/#token=/);
-  const detail = await client.callTool({ name: 'git_graph_commit', arguments: { repositoryPath: f.root, hash: f.first } });
+  const detail = await client.callTool({ name: 'workgraph_commit', arguments: { repositoryPath: f.root, hash: f.first } });
   assert.match(detail.structuredContent.patch, /Orbit Studio/);
-  const invalid = await client.callTool({ name: 'git_graph_open', arguments: { repositoryPath: 'relative' } });
+  const invalid = await client.callTool({ name: 'workgraph_open', arguments: { repositoryPath: 'relative' } });
   assert.equal(invalid.isError, true);
-  const prepared = await client.callTool({ name: 'git_graph_prepare', arguments: { repositoryPath: f.root, action: 'branch', payload: { start: f.first, name: 'codex/mcp-write' } } });
+  const prepared = await client.callTool({ name: 'workgraph_prepare', arguments: { repositoryPath: f.root, action: 'branch', payload: { start: f.first, name: 'codex/mcp-write' } } });
   assert.equal(prepared.isError, undefined);
-  const executed = await client.callTool({ name: 'git_graph_execute', arguments: { repositoryPath: f.root, actionId: prepared.structuredContent.actionId, operationId: randomUUID() } });
+  const executed = await client.callTool({ name: 'workgraph_execute', arguments: { repositoryPath: f.root, actionId: prepared.structuredContent.actionId, operationId: randomUUID() } });
   assert.equal(executed.structuredContent.state, 'completed');
 });
 test('built plugin launches independently from source and completes stdio handshake', async t => {
-  const config = JSON.parse(await readFile('plugins/codex-git-graph/.mcp.json', 'utf8'));
+  const config = JSON.parse(await readFile('plugins/workgraph/mcp.json', 'utf8'));
+  const pluginRoot = fileURLToPath(new URL('../plugins/workgraph/', import.meta.url));
+  const entry = config.mcpServers.workgraph;
   const client = new Client({ name: 'packaging-test', version: '1.0.0' });
-  const transport = new StdioClientTransport({ ...config.mcpServers.git_graph, stderr: 'pipe' });
+  const transport = new StdioClientTransport({ ...entry, args: entry.args.map(arg => arg.replaceAll('${PLUGIN_ROOT}', pluginRoot)), cwd: entry.cwd.replaceAll('${PLUGIN_ROOT}', pluginRoot), stderr: 'pipe' });
   let stderr = ''; transport.stderr?.on('data', chunk => { stderr += chunk; });
   t.after(() => client.close());
   await client.connect(transport);
   assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), expectedTools, stderr);
-  const data = await client.callTool({ name: 'git_graph_open', arguments: { repositoryPath: f.root, limit: 2 } });
+  const data = await client.callTool({ name: 'workgraph_open', arguments: { repositoryPath: f.root, limit: 2 } });
   assert.equal(data.structuredContent.commits.length, 2, stderr);
 });
 
@@ -153,7 +156,7 @@ test('MCP parity tools accept new schemas and preserve read-only preparation', a
   t.after(async () => { await client.close(); await server.close(); });
   await server.mcp.connect(a); await client.connect(b);
   const call = async (name, args = {}) => {
-    const result = await client.callTool({ name: `git_graph_${name}`, arguments: { repositoryPath: f.root, ...args } });
+    const result = await client.callTool({ name: `workgraph_${name}`, arguments: { repositoryPath: f.root, ...args } });
     assert.notEqual(result.isError, true, JSON.stringify(result));
     return result.structuredContent;
   };
@@ -171,9 +174,9 @@ test('MCP parity tools accept new schemas and preserve read-only preparation', a
   const prepared = await call('prepare', { action: 'remote-add', payload: { name: 'parity-local', url: f.directory } });
   assert.ok(prepared.actionId);
   assert.doesNotMatch(await git(f.root, ['remote']), /parity-local/);
-  const invalid = await client.callTool({ name: 'git_graph_file_content', arguments: { repositoryPath: f.root, input: { hash: f.first, fileId: 'README.md', revision: 'invalid' } } });
+  const invalid = await client.callTool({ name: 'workgraph_file_content', arguments: { repositoryPath: f.root, input: { hash: f.first, fileId: 'README.md', revision: 'invalid' } } });
   assert.equal(invalid.isError, true);
-  const noConfirmation = await client.callTool({ name: 'git_graph_prepare', arguments: { repositoryPath: f.root, action: 'tag-delete', payload: { name: 'v0.1.0' } } });
+  const noConfirmation = await client.callTool({ name: 'workgraph_prepare', arguments: { repositoryPath: f.root, action: 'tag-delete', payload: { name: 'v0.1.0' } } });
   assert.equal(noConfirmation.isError, true);
 });
 
@@ -214,9 +217,9 @@ test('preferences and review progress persist across HTTP service ports and link
   const [a, b] = InMemoryTransport.createLinkedPair();
   t.after(async () => { await client.close(); await server.close(); });
   await server.mcp.connect(a); await client.connect(b);
-  const loaded = await client.callTool({ name: 'git_graph_preferences', arguments: { repositoryPath: f.root } });
+  const loaded = await client.callTool({ name: 'workgraph_preferences', arguments: { repositoryPath: f.root } });
   assert.deepEqual(loaded.structuredContent, saved);
-  const changed = await client.callTool({ name: 'git_graph_save_preferences', arguments: { repositoryPath: f.linked, input: { review: { key, active: false, files: ['README.md'] } } } });
+  const changed = await client.callTool({ name: 'workgraph_save_preferences', arguments: { repositoryPath: f.linked, input: { review: { key, active: false, files: ['README.md'] } } } });
   assert.notEqual(changed.isError, true, JSON.stringify(changed));
   assert.deepEqual(changed.structuredContent.config, input.config);
   assert.equal(changed.structuredContent.reviews[key].active, false);

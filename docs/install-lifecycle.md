@@ -17,31 +17,31 @@
    npm run build
    ```
 
-2. 按下方源码示例布局，在本仓库的 `.agents/plugins/marketplace.json` 保存完整配置；目录不存在时先创建。已有配置时合并插件条目，保留其他内容。配置预期让 `./plugins/codex-git-graph` 指向仓库内插件目录；本地 marketplace 的发现与相对路径解析尚未在真实桌面宿主中实测。
+2. 按下方源码示例布局，在本仓库的 `.agents/plugins/marketplace.json` 保存完整配置；目录不存在时先创建。已有配置时合并插件条目，保留其他内容。配置预期让 `./plugins/workgraph` 指向仓库内插件目录；本地 marketplace 的发现与相对路径解析尚未在真实桌面宿主中实测。
 3. 重启 Codex，在插件目录选择「WorkGraph · 本地开发」并安装。入口的实际显示取决于宿主版本。
-4. 在目标仓库的聊天中输入「打开当前仓库的 WorkGraph，显示所有 Worktree」。技能会把仓库绝对路径传给 `git_graph_open`。
+4. 在目标仓库的聊天中输入「打开当前仓库的 WorkGraph，显示所有 Worktree」。技能会把仓库绝对路径传给 `workgraph_open`。
 
 源码示例布局：
 
 ```text
-codex-git-graph/
+workgraph/
 ├─ .agents/plugins/marketplace.json
-└─ plugins/codex-git-graph/
+└─ plugins/workgraph/
    ├─ plugin.json
    ├─ mcp.json
    └─ dist/
 ```
 
-本地源码配置与根目录的 `marketplace.example.json` 相同：
+仓库内 `.agents/plugins/marketplace.json` 是本地开发配置，内容如下：
 
 ```json
 {
-  "name": "codex-git-graph-local",
+  "name": "workgraph-local",
   "interface": { "displayName": "WorkGraph · 本地开发" },
   "plugins": [
     {
-      "name": "codex-git-graph",
-      "source": { "source": "local", "path": "./plugins/codex-git-graph" },
+      "name": "workgraph",
+      "source": { "source": "local", "path": "./plugins/workgraph" },
       "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
       "category": "Productivity"
     }
@@ -53,10 +53,10 @@ codex-git-graph/
 
 ## 打包到其他目录或机器
 
-先完成构建。以下示例要求 `D:\release` 已存在，`D:\release\codex-git-graph` 尚不存在；按实际路径修改。
+先完成构建。以下示例要求 `D:\release` 已存在，`D:\release\workgraph` 尚不存在；按实际路径修改。
 
 ```powershell
-node scripts/package.mjs "D:\release\codex-git-graph"
+node scripts/package.mjs "D:\release\workgraph"
 ```
 
 脚本拒绝覆盖现有目录。输出包含根 `plugin.json`、根 `mcp.json`、`dist/`、技能和第三方声明；运行依赖已打包，目标主机不需要执行 `npm install`，但仍需 Node.js 22+ 和 Git。
@@ -66,17 +66,17 @@ node scripts/package.mjs "D:\release\codex-git-graph"
 ```text
 D:\release\
 ├─ .agents/plugins/marketplace.json
-└─ codex-git-graph/
+└─ workgraph/
    ├─ plugin.json
    ├─ mcp.json
    └─ dist/
 ```
 
-在 `D:\release\.agents\plugins\marketplace.json` 保存上方完整 JSON，并将 `source.path` 改为 `./codex-git-graph`。示例预期指向 `D:\release\codex-git-graph`，随后通过 Codex 的插件入口安装。
+在 `D:\release\.agents\plugins\marketplace.json` 保存上方完整 JSON，并将 `source.path` 改为 `./workgraph`。示例预期指向 `D:\release\workgraph`，随后通过 Codex 的插件入口安装。
 
 上述目录与路径是配置示例。本地 marketplace 如何被发现、相对路径如何解析，以及安装入口如何显示，均尚未在真实桌面宿主中实测。若宿主没有识别配置，先保留错误信息，并按[故障排查](troubleshooting.md)直接启动面板。
 
-根 `mcp.json` 使用 `${PLUGIN_ROOT}/dist/server.mjs`，由宿主替换安装目录。构建生成的 `.mcp.json` 是含本机路径的旧版开发配置，不随分发包交付；不要把它当作可迁移配置。
+根 `mcp.json` 使用 `${PLUGIN_ROOT}/dist/server.mjs`，由宿主替换安装目录。构建和测试均使用这套可迁移配置。
 
 ## 安装验证范围
 
@@ -84,10 +84,19 @@ D:\release\
 
 ## 更新、卸载与数据保留
 
-从源码更新时，获取所需版本后重新运行 `npm install` 和 `npm run build`。构建会重写插件的 `dist/`、本机开发 `.mcp.json` 和第三方声明；已运行的服务需重新启动才能加载新代码。宿主安装缓存如何刷新、是否需要重新安装，尚未实测。
+从源码更新时，获取所需版本后重新运行 `npm install` 和 `npm run build`。构建会重写插件的 `dist/` 和第三方声明；已运行的服务需重新启动才能加载新代码。宿主安装缓存如何刷新、是否需要重新安装，尚未实测。
 
 重新打包时使用新的输出目录。打包脚本不会覆盖旧包，也不会替宿主切换已安装版本；更新 marketplace 路径后，按实际宿主提供的安装流程操作。
 
 构建与打包脚本不提供卸载功能。宿主中的卸载入口、缓存清理和异常恢复流程尚未验证，不能承诺卸载会清除哪些文件。
 
 仓库配置和审阅记录保存在目标仓库的 Git 共用目录，布局偏好保存在浏览器，详见[使用指南](usage.md#设置与审阅进度)。构建和打包不负责清理这些数据；移除插件目录也不等于删除仓库数据。需要清理时，先备份并确认实际保存位置，不要删除整个 Git 共用目录。
+
+## 插件文件职责
+
+- `plugin.json`：插件标识 `workgraph`、版本、描述和展示名称 WorkGraph。
+- `mcp.json`：启动打包后的 Node.js 服务，使用 `${PLUGIN_ROOT}` 定位安装目录。
+- `skills/workgraph/SKILL.md`：聊天中打开面板的使用说明。
+- `.agents/plugins/marketplace.json`：本地开发时让宿主定位 `plugins/workgraph` 的目录配置，不属于插件分发包。
+
+项目只维护上述一套清单，不生成旧版 `.mcp.json`，也不提供旧工具名的别名。旧版安装需移除并按当前配置重新安装。环境变量使用 `WORKGRAPH_REPO`；偏好和界面布局使用 WorkGraph 的存储名称，不自动读取旧版数据。

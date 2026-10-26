@@ -22,7 +22,7 @@ async function call(route, args = {}) {
     const data = await response.json(); session.assert(); if (!response.ok) throw new Error(data.error || '本地服务请求失败。'); return data;
   }
   await bridgeReady; session.assert();
-  const result = await app.callServerTool({name:route==='snapshot'?'git_graph_open':`git_graph_${route}`,arguments:{...args,...(route==='context'?{}:{repositoryPath:repositoryPath || undefined})}});
+  const result = await app.callServerTool({name:route==='snapshot'?'workgraph_open':`workgraph_${route}`,arguments:{...args,...(route==='context'?{}:{repositoryPath:repositoryPath || undefined})}});
   session.assert();
   if (result.isError) throw new Error(result.content?.find(c=>c.type==='text')?.text || '请求失败。'); return result.structuredContent;
   } catch(error) { session.assert(); if(token&&error instanceof TypeError)throw new Error('连接已断开，请重新打开 WorkGraph 获取新链接。写操作结果不确定时请先刷新核对。');throw error; }
@@ -194,13 +194,13 @@ $('detail-meta').onclick=async e=>{try{if(e.target.id==='copy-sha'){await naviga
 $('commit-pane').oninput=e=>{if(e.target.id==='commit-message'){state.message=e.target.value;const d=state.detail;$('commit-submit').disabled=state.pending||!state.message.trim()||!d.branch||!d.identity||!d.status.staged||!!d.status.conflicts||!!d.ongoing.length;}};$('commit-pane').onclick=e=>{if(e.target.id==='commit-submit')void runAction('commit',{worktreePath:state.detail.path,message:state.message});};
 $('repo-form').onsubmit=e=>{e.preventDefault();contextBinding=false;contextRequest++;switchRepository($('repo-input').value.trim());void refresh();};
 document.addEventListener('keydown',e=>{if($('app').classList.contains('work-mode'))return;const input=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);if((e.key==='/'&&!input)||((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f')){e.preventDefault();$('search').focus();}if(e.key==='Escape'&&!input&&!$('menu').open&&!$('action-dialog').open){e.preventDefault();if($('app').classList.contains('full-detail')){$('app').classList.remove('full-detail');$('expand-detail').textContent='展开详情';}else closeDetail();}});
-let layout={};try{layout=JSON.parse(localStorage.getItem('git-graph-layout-v3')||'{}');}catch{}
+let layout={};try{layout=JSON.parse(localStorage.getItem('workgraph-layout-v3')||'{}');}catch{}
 $('app').classList.toggle('nav-closed',layout.navClosed!==false);$('app').classList.toggle('bottom-detail',layout.bottomDetail!==false);$('dock-detail').textContent=layout.bottomDetail!==false?'右侧':'底部';
 function applyTheme(){const t=layout.theme||'dark';document.documentElement.dataset.theme=t==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):t;}
 applyTheme();matchMedia('(prefers-color-scheme: light)').addEventListener('change',()=>{if(layout.theme==='system')applyTheme();});
 function applyColumns(){for(const key of ['author','date','sha'])$('app').classList.toggle('hide-'+key,layout.columns?.[key]===false);}
 applyColumns();
-function saveLayout(){try{localStorage.setItem('git-graph-layout-v3',JSON.stringify({navClosed:$('app').classList.contains('nav-closed'),bottomDetail:$('app').classList.contains('bottom-detail'),theme:layout.theme||'dark',columns:layout.columns||{}}));}catch{}}
+function saveLayout(){try{localStorage.setItem('workgraph-layout-v3',JSON.stringify({navClosed:$('app').classList.contains('nav-closed'),bottomDetail:$('app').classList.contains('bottom-detail'),theme:layout.theme||'dark',columns:layout.columns||{}}));}catch{}}
 new ResizeObserver(entries=>$('app').classList.toggle('wide',entries[0].contentRect.width>=1100)).observe($('app'));
 for(const [id,name,label] of [['refresh','refresh','刷新'],['more','ellipsis','面板设置'],['nav-toggle','list-tree','引用导航'],['prev','chevron-up','上一命中'],['next','chevron-down','下一命中'],['detail-toggle','layout-panel','详情']]){$(id).innerHTML=icon(name);$(id).classList.add('icon-button');$(id).title=label;$(id).setAttribute('aria-label',label);}
 $('history').addEventListener('scroll',e=>{if(!e.target.classList.contains('graph-cell')||e.target.scrollLeft===graphOffset)return;graphOffset=e.target.scrollLeft;$('history').querySelectorAll('.graph-cell').forEach(el=>{if(el!==e.target)el.scrollLeft=graphOffset;});},true);

@@ -2,7 +2,7 @@
   "version": 1,
   "works": [
     {"id":"WG-LIVE","title":"接入真实项目工作历史","status":"进行中","next":"完善自动记录与恢复","summary":"将本仓库工作项关联到实际提交，提供真实差异和未提交文件状态。","commits":[]},
-    {"id":"WG-VIEW","title":"工作轨道与底部详情","status":"进行中","next":"继续打磨信息密度","summary":"沿用 GitGraph 风格展示工作进展，详情置于底部，关键文字优先。","commits":[]},
+    {"id":"WG-VIEW","title":"工作轨道与底部详情","status":"进行中","next":"继续打磨信息密度","summary":"沿用 Git 历史视图风格展示工作进展，详情置于底部，关键文字优先。","commits":[]},
     {"id":"WG-CONTEXT","title":"识别 Codex 仓库上下文","status":"已完成","next":"补充真实宿主兼容验证","summary":"按聊天与项目定位仓库，隔离切换后的过期请求。已完成实现与本地测试。","commits":["effa7cf960823b3d41c10b568d4da29819e28a0f"]},
     {"id":"WG-DOCS","title":"整理产品方向与使用文档","status":"已完成","next":"随实现更新边界","summary":"记录 WorkGraph 产品方向，整理安装、使用、贡献与架构说明。","commits":["6e597f023a8e5ae1f05c405c8afa84ffe7935e31","0ecd3c6337b1eba1daf2782ed4b9ac1e605c8572"]},
     {"id":"WG-GIT","title":"构建 Git 操作与审阅基础","status":"已完成","next":"维护回归测试","summary":"实现本地提交图、差异审阅、分支、Worktree 及 Git 操作。","commits":["3c78e6eb5fff64793248e0f678748894a009c31f","f9870da5d7f348ca64603852f11c40902e82e7fd","3ff55fa58aadb60a5c99e0ee29dddd8f178638e8"]}
