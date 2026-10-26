@@ -7,6 +7,7 @@ const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const token = new URLSearchParams(location.hash.slice(1)).get('token');
 const state = { data:null, repositoryPath:null, active:null, selected:null, limit:300, scope:'', rows:[], detailInput:null, detail:null, file:null, detailRequest:0, diffRequest:0, refreshRequest:0, matches:[], match:-1, compare:null, message:'', pending:false, checked:new Set() };
+let workGraph;
 let app, bridgeReady, lastFocus, actionSpec, prepared, graphOffset=0, features, contextBinding=false, contextRequest=0, contextSignature, contextInFlight=false, contextQueued=false, contextDisposed=false;
 const workspace=createWorkspaceSession();
 const groups = {staged:'已暂存',unstaged:'未暂存',untracked:'未跟踪',conflict:'冲突',commit:'变更文件',comparison:'历史 → 工作目录'};
@@ -44,7 +45,7 @@ function scopeRender() {
 }
 function switchRepository(repositoryPath) {
   if(state.repositoryPath===repositoryPath)return false;
-  workspace.invalidate();resetRepositoryState(state);state.repositoryPath=repositoryPath;
+  workGraph?.reset();workspace.invalidate();resetRepositoryState(state);state.repositoryPath=repositoryPath;
   features?.resetRepository();prepared=null;actionSpec=null;lastFocus=null;graphOffset=0;searching=false;
   for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
   for(const id of ['menu-content','action-fields','action-error','action-preview','detail-meta','detail-tabs','files','diff','diff-title','commit-pane','history','nav','summary','matches'])$(id).textContent='';
@@ -65,7 +66,7 @@ function receive(data) {
   const a=active();$('worktree-menu').textContent=a?wtName(a):'裸仓库';$('worktree-menu').title=a?`操作工作区：${a.path}`:data.repository.path;
   $('branch').textContent=a?`${a.status?.total || 0} 个改动 · ${a.head?.slice(0,7)||'unborn'}`:'裸仓库';
   $('head').textContent=a?.head&&!/^0+$/.test(a.head)?'HEAD':'工作区';
-  navRender();scopeRender();renderHistory();
+  navRender();scopeRender();renderHistory();void workGraph?.update();
   $('summary').textContent=`已加载 ${data.commits.length} 条 · ${scopeLabel()} · ${data.worktrees.length} 个 Worktree${data.hasMore?' · 可继续加载':''}`;
 }
 const ROW_HEIGHT=24, LANE_WIDTH=20;
@@ -230,5 +231,5 @@ if(token)void refresh();else if(window.parent!==window){
   app.onteardown=()=>{contextDisposed=true;contextQueued=false;clearInterval(contextTimer);window.removeEventListener('focus',onContextFocus);contextRequest++;workspace.invalidate();return {};};
   bridgeReady=app.connect();bridgeReady.then(()=>syncHostRepository()).catch(e=>notify(e.message));
 }else notify('请使用本地服务输出的完整链接，或从 Codex 插件打开面板。');
-import { installWorkPrototype } from './work-prototype.js';
-installWorkPrototype();
+import { installWorkGraph } from './work-live.js';
+workGraph=installWorkGraph({call});

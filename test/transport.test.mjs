@@ -11,7 +11,7 @@ import { startHttp } from '../src/http.mjs';
 import { randomUUID } from 'node:crypto';
 import { git } from '../src/git.mjs';
 
-const expectedTools = ['git_graph_open', 'git_graph_context', 'git_graph_commit', 'git_graph_worktree', 'git_graph_files', 'git_graph_diff', 'git_graph_file_content', 'git_graph_repository_info', 'git_graph_commit_info', 'git_graph_ref_info', 'git_graph_resolve', 'git_graph_prepare', 'git_graph_execute', 'git_graph_preferences', 'git_graph_save_preferences'].sort();
+const expectedTools = ['git_graph_work_graph', 'git_graph_open', 'git_graph_context', 'git_graph_commit', 'git_graph_worktree', 'git_graph_files', 'git_graph_diff', 'git_graph_file_content', 'git_graph_repository_info', 'git_graph_commit_info', 'git_graph_ref_info', 'git_graph_resolve', 'git_graph_prepare', 'git_graph_execute', 'git_graph_preferences', 'git_graph_save_preferences'].sort();
 
 let f;
 before(async () => { f = await createFixture(); });
@@ -27,6 +27,9 @@ test('loopback HTTP requires its token, enforces origin and exposes only the bou
   });
   assert.equal(hostileHostStatus, 403);
   assert.equal((await fetch(endpoint, { method: 'POST', headers })).status, 405);
+  assert.equal((await fetch(`${panel.origin}/api/work_graph`)).status,401);
+  const work = await (await fetch(`${panel.origin}/api/work_graph`, {headers})).json();
+  assert.equal(work.repository.path,f.root);assert.ok(work.records.length>0);
   const data = await (await fetch(`${endpoint}?repositoryPath=C:/Windows`, { headers })).json();
   assert.equal(data.repository.name, 'studio 中文');
   assert.equal((await fetch(`${panel.origin}/api/commit?hash=--help`, { headers })).status, 400);
@@ -54,6 +57,8 @@ test('MCP advertises thread entrypoint, serves UI and reads real Git data', asyn
   await server.mcp.connect(a); await client.connect(b);
   const tools = await client.listTools();
   assert.deepEqual(tools.tools.map(t => t.name).sort(), expectedTools);
+  const work = await client.callTool({name:'git_graph_work_graph',arguments:{repositoryPath:f.root}});
+  assert.equal(work.structuredContent.repository.path,f.root);assert.ok(work.structuredContent.records.length>0);
   const open = tools.tools.find(t => t.name === 'git_graph_open');
   assert.deepEqual(open._meta['openai/ui'].entrypoints, [{ type: 'thread' }]);
   assert.equal(tools.tools.find(t => t.name === 'git_graph_execute').annotations.readOnlyHint, false);

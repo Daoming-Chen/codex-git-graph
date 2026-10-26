@@ -1,3 +1,4 @@
+import { readWorkGraph } from './work-graph.mjs';
 import { createServer } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { snapshot, commitDetail, worktreeDetail, resolveRepository } from './git.mjs';
@@ -51,6 +52,7 @@ export async function startHttp({ repositoryPath, html, port = 0, devHarness = f
         }
         data=await snapshot(root,options);
       }
+      else if (url.pathname === '/api/work_graph') data = await readWorkGraph(root);
       else if (url.pathname === '/api/commit') data = await commitDetail(root, url.searchParams.get('hash') || '');
       else if (url.pathname === '/api/worktree') data = await worktreeDetail(root, url.searchParams.get('path') || '');
       else if (url.pathname === '/api/files') data = await reviewFiles(root, JSON.parse(url.searchParams.get('input') || '{}'));

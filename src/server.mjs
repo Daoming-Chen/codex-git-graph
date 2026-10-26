@@ -1,3 +1,4 @@
+import { readWorkGraph } from './work-graph.mjs';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -61,6 +62,10 @@ export function createMcpServer(html, { contextOptions = {} } = {}) {
     title: '读取 Workspace 上下文', description: 'Resolve the current local repository from per-request Codex conversation metadata and local project state, standardized MCP roots, or GIT_GRAPH_REPO.',
     inputSchema: {}, annotations, _meta: { ui: { resourceUri: uri, visibility: ['app'] } },
   }, safely((args, extra) => repositoryContext(mcp.server, { ...contextOptions, meta: extra?._meta, signal: extra?.signal })));
+  registerAppTool(mcp, 'git_graph_work_graph', {
+    title: '读取工作进展', description: 'Read explicit work records and real local Git commits.',
+    inputSchema: { ...repo }, annotations, _meta: { ui: { resourceUri: uri, visibility: ['app'] } },
+  }, safely(({ repositoryPath }) => readWorkGraph(requiredRepo(repositoryPath))));
   registerAppTool(mcp, 'git_graph_commit', {
     title: '查看提交', description: 'Read commit details and a bounded patch; merges compare to the first parent.',
     inputSchema: { ...repo, hash: z.string().regex(/^[a-f0-9]{40,64}$/) }, annotations,

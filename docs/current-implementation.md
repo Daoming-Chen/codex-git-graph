@@ -60,3 +60,7 @@ Git 使用参数数组和 literal pathspec；目标 Worktree 校验 common dir�
 历史查询单次上限 2000 条，可用 offset 分页继续读取。界面渲染所有已加载行，尚无虚拟列表，大量续载会增加查询和渲染开销。
 
 没有代理运行状态或 PR／CI 状态联动。Issue／PR／MR URL 模板只打开页面或创建表单，不提交表单。宿主端到端安装、聊天切换、异常进程恢复、SSH／WSL 与跨主机访问仍需实际环境验证。
+
+## 工作进展读取
+
+`src/work-graph.mjs` 读取仓库 `.workgraph.json` 与 HEAD 最近 300 条提交，按完整 SHA 或 `Work-Item` 标识关联工作。HTTP `/api/work_graph` 与 App 工具 `git_graph_work_graph` 共用读取逻辑。`src/ui/work-live.js` 使用现有仓库请求隔离，切换时清空记录并丢弃旧响应。工作项状态来自记录，验证和用户接受不由提交推断；范围与限制见 [WorkGraph 使用说明](work-graph.md)。

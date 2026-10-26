@@ -7,7 +7,7 @@ import { build } from 'esbuild';
 import { createWorkspaceSession } from '../src/ui/workspace.js';
 
 const source = await readFile(new URL('../src/ui/app.js', import.meta.url), 'utf8');
-const bundled = await build({ stdin:{contents:source.replace("import { App } from '@modelcontextprotocol/ext-apps';",'const App = globalThis.AppTest;')+'\nexport function testBridge(fn){app.callServerTool=fn;bridgeReady=Promise.resolve();}\nexport { state, switchRepository, call, receive, features, workspace, openAction, compare, refresh, showDetail, runAction, syncHostRepository };',resolveDir:fileURLToPath(new URL('../src/ui/',import.meta.url))}, bundle:true,write:false,format:'iife',globalName:'GraphTest',target:'es2022' });
+const bundled = await build({ stdin:{contents:source.replace("import { App } from '@modelcontextprotocol/ext-apps';",'const App = globalThis.AppTest;')+'\nexport function testBridge(fn){app.callServerTool=args=>args.name==="git_graph_work_graph"?Promise.resolve({structuredContent:{repository:{name:args.arguments.repositoryPath},works:[],records:[],dirty:[]}}):fn(args);bridgeReady=Promise.resolve();}\nexport { state, switchRepository, call, receive, features, workspace, openAction, compare, refresh, showDetail, runAction, syncHostRepository };',resolveDir:fileURLToPath(new URL('../src/ui/',import.meta.url))}, bundle:true,write:false,format:'iife',globalName:'GraphTest',target:'es2022' });
 function harness() {
   const nodes=new Map(),windowEvents=new Map(),timers=[];
   const node=id=>{

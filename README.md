@@ -55,3 +55,5 @@ npm start -- --repo "D:\path\to\repository"
 ## 许可证
 
 仓库目前未提供项目 LICENSE，不能据此认定已授予开源使用、修改或分发许可。第三方素材的声明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
+
+真实项目工作视图与数据边界见[WorkGraph 使用说明](docs/work-graph.md)。
