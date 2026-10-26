@@ -1,65 +1,93 @@
-# 可迁移安装与面板生命周期
+# 安装与打包
 
-## 构建与分发
+## 准备环境
 
-运行环境需要 Node.js 22+ 和 Git，且 `node`、`git` 在插件执行主机的 PATH 中可用。打包文件已包含 JavaScript 依赖和面板，不需要在目标主机运行 `npm install`。当前实测平台为 Windows。
+需要 Node.js 22+、npm、Git 和 Codex 桌面应用。插件执行主机的 PATH 必须能找到 `node` 和 `git`。当前实测平台为 Windows；真实桌面宿主的插件安装、缓存目录加载和聊天切换流程仍需验证。
 
-在开发仓库执行：
+尚未配置插件时，可先按 [README](../README.md#开始使用)直接启动，检查面板是否能读取目标仓库。
+
+## 从源码安装本地插件
+
+以下操作在本仓库目录执行。配置文件存在时，合并条目并保留原有内容，不要整文件覆盖。
+
+1. 安装依赖并构建：
+
+   ```powershell
+   npm install
+   npm run build
+   ```
+
+2. 按下方源码示例布局，在本仓库的 `.agents/plugins/marketplace.json` 保存完整配置；目录不存在时先创建。已有配置时合并插件条目，保留其他内容。配置预期让 `./plugins/codex-git-graph` 指向仓库内插件目录；本地 marketplace 的发现与相对路径解析尚未在真实桌面宿主中实测。
+3. 重启 Codex，在插件目录选择「WorkGraph · 本地开发」并安装。入口的实际显示取决于宿主版本。
+4. 在目标仓库的聊天中输入「打开当前仓库的 WorkGraph，显示所有 Worktree」。技能会把仓库绝对路径传给 `git_graph_open`。
+
+源码示例布局：
+
+```text
+codex-git-graph/
+├─ .agents/plugins/marketplace.json
+└─ plugins/codex-git-graph/
+   ├─ plugin.json
+   ├─ mcp.json
+   └─ dist/
+```
+
+本地源码配置与根目录的 `marketplace.example.json` 相同：
+
+```json
+{
+  "name": "codex-git-graph-local",
+  "interface": { "displayName": "WorkGraph · 本地开发" },
+  "plugins": [
+    {
+      "name": "codex-git-graph",
+      "source": { "source": "local", "path": "./plugins/codex-git-graph" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}
+```
+
+支持 MCP Apps 的宿主可以显示原生面板；工具也会返回 `panelUrl`，可在 Codex 右侧浏览器打开。未出现入口或连接失败时，见[故障排查](troubleshooting.md)。
+
+## 打包到其他目录或机器
+
+先完成构建。以下示例要求 `D:\release` 已存在，`D:\release\codex-git-graph` 尚不存在；按实际路径修改。
 
 ```powershell
-npm run build
 node scripts/package.mjs "D:\release\codex-git-graph"
 ```
 
-打包目标必须是新目录，其父目录必须已经存在。脚本拒绝覆盖现有目录。输出包含根 `plugin.json`、根 `mcp.json`、`dist/`、技能和第三方声明，不包含本机开发配置 `.mcp.json`。
+脚本拒绝覆盖现有目录。输出包含根 `plugin.json`、根 `mcp.json`、`dist/`、技能和第三方声明；运行依赖已打包，目标主机不需要执行 `npm install`，但仍需 Node.js 22+ 和 Git。
 
-根 `mcp.json` 使用 `command: "node"` 和 `${PLUGIN_ROOT}/dist/server.mjs`。`${PLUGIN_ROOT}` 由宿主替换为安装后目录；`cwd` 同样指向安装后目录。这个占位符有[官方桌面插件文档](https://developers.openai.com/plugins/deploy/desktop-only)支持。构建产生的 `.mcp.json` 仅供旧版开发配置和直接 stdio 测试使用，不应随分发包交付。
+将整个输出目录复制到目标机器，再按分发示例布局配置本地 marketplace：
 
-将整个分发目录复制到目标主机后，把目录加入目标主机的插件 marketplace，再通过桌面应用安装。marketplace 的路径以 marketplace 根目录为基准，使用 `./` 开头的相对路径。安装后宿主从插件缓存目录加载文件；不要依赖源码仓库仍位于原位置。具体目录规则见[官方插件打包文档](https://developers.openai.com/plugins/build/plugins)。
+```text
+D:\release\
+├─ .agents/plugins/marketplace.json
+└─ codex-git-graph/
+   ├─ plugin.json
+   ├─ mcp.json
+   └─ dist/
+```
 
-## 仓库上下文与切换
+在 `D:\release\.agents\plugins\marketplace.json` 保存上方完整 JSON，并将 `source.path` 改为 `./codex-git-graph`。示例预期指向 `D:\release\codex-git-graph`，随后通过 Codex 的插件入口安装。
 
-通过插件技能打开时，应向 `git_graph_open` 传入当前任务的仓库绝对路径，不能使用插件安装目录。MCP 服务按以下规则解析仓库：
+上述目录与路径是配置示例。本地 marketplace 如何被发现、相对路径如何解析，以及安装入口如何显示，均尚未在真实桌面宿主中实测。若宿主没有识别配置，先保留错误信息，并按[故障排查](troubleshooting.md)直接启动面板。
 
-1. 显式 `repositoryPath` 优先，解析失败直接报错。
-2. 宿主声明支持 roots 时，读取标准 MCP roots，只接受能解析为本地 Git 仓库的 `file:` URI，并按解析后的仓库路径去重。只有一个候选时自动绑定；多个候选、非空 roots 中没有可用仓库、读取失败或 roots 超过 32 项时，返回选择提示及原因，不回退到环境变量。
-3. 宿主不支持 roots，或返回空列表时，尝试 `GIT_GRAPH_REPO`；仍无路径则提示选择仓库。MCP 模式不会用插件进程的当前目录猜测仓库。
+根 `mcp.json` 使用 `${PLUGIN_ROOT}/dist/server.mjs`，由宿主替换安装目录。构建生成的 `.mcp.json` 是含本机路径的旧版开发配置，不随分发包交付；不要把它当作可迁移配置。
 
-直接运行 `--http` 时，路径顺序为 `--repo`、`GIT_GRAPH_REPO`、进程当前目录。HTTP 服务始终绑定单个仓库，不随聊天或 roots 变化。
+## 安装验证范围
 
-原生 MCP Apps 面板在连接完成、宿主上下文变化和窗口重新聚焦时检查上下文；页面可见时，还会每 5 秒检查一次。检查串行执行，不会定时刷新同一仓库的 Git 历史。显式路径或手动选择的仓库不会被首次上下文查询立即覆盖；后续检测到宿主仓库路径、状态或候选列表变化时，才重新绑定或提示选择。
+仓库有打包迁移、stdio 握手和服务关闭重开的自动化测试，测试位置见[贡献指南](../CONTRIBUTING.md)。这些测试不能代替真实桌面宿主验收。安装后仍需确认插件能加载、能打开正确仓库，并能在服务重启后重新打开面板。
 
-切换仓库会清空详情、查找、筛选、比较端点、勾选文件、提交消息和已准备操作，并重新加载仓库偏好。旧 HTTP 请求会中止，旧 MCP 响应会被丢弃；即使从 A 切到 B 再切回 A，旧请求也不能恢复界面或触发后续执行。切换无法撤销服务端已经开始的 Git 操作；结果不确定时，应回到原仓库核对实际状态。
+## 更新、卸载与数据保留
 
-标准 roots 表示工作区边界，不保证对应当前聊天。原生入口是否显示、roots 是否随聊天变化，以及真实桌面宿主中的切换行为，仍需安装后验证；协议测试和界面测试不能替代这项验证。
+从源码更新时，获取所需版本后重新运行 `npm install` 和 `npm run build`。构建会重写插件的 `dist/`、本机开发 `.mcp.json` 和第三方声明；已运行的服务需重新启动才能加载新代码。宿主安装缓存如何刷新、是否需要重新安装，尚未实测。
 
-## 数据保存
+重新打包时使用新的输出目录。打包脚本不会覆盖旧包，也不会替宿主切换已安装版本；更新 marketplace 路径后，按实际宿主提供的安装流程操作。
 
-仓库配置和审阅进度写入 Git common dir 的 `codex-git-graph-state.json`，由同一仓库的 linked Worktree 共用。重开服务或更换回环端口后仍可读取。保存不修改 refs、index、Git config 或工作文件。仓库设置中的「保存在此浏览器」提示尚未更新，应以这里说明的位置为准。
+构建与打包脚本不提供卸载功能。宿主中的卸载入口、缓存清理和异常恢复流程尚未验证，不能承诺卸载会清除哪些文件。
 
-- 仓库配置包括 Issue／PR URL 模板、日期格式、滚动续载、目录分组和作者／日期／SHA 列宽。导出／导入只处理配置，不包含审阅进度；面板导入文件上限为 64 KiB。
-- 审阅记录按比较两端的提交 SHA（或 `root`）保存。提交详情和两个历史端点的比较提供审阅入口，历史与工作目录比较不提供相同的审阅标记入口。超过 90 天的记录在读取或保存时过滤。
-- 存储文件限 1 MiB，拒绝符号链接、无效 JSON、未知字段和超限数据，不静默覆盖无效文件。写入按 common dir 在本进程内排队，通过临时文件替换；多个服务进程之间不共享队列。
-- 导航显隐、详情位置、主题和列显隐保存在浏览器 `localStorage`，键为 `git-graph-layout-v3`。这些布局偏好不属于仓库配置导出内容；回环端口改变后不保证恢复。
-
-## 关闭、重开与回收
-
-每个 MCP 服务进程最多保留 10 个 HTTP 仓库面板服务。达到上限后，回收最近最少访问的空闲服务，再打开新仓库。超过 30 分钟没有认证 API 请求的服务也会回收。正在处理 HTTP 请求的服务不会被回收；所有服务都忙碌时，打开新仓库会提示稍后重试。
-
-关闭浏览器标签页不会向服务发送可靠的关闭通知，因此不依赖关闭事件立即回收。关闭后短时间内重新打开同一仓库，会复用存活服务；服务已经关闭或被回收时，重新调用 `git_graph_open` 会创建新服务，并返回新的 URL 和令牌。旧链接不能连接新服务。
-
-MCP 连接关闭、标准输入结束或收到 SIGINT/SIGTERM 时，服务会关闭所有 HTTP 监听器。再次由宿主启动插件后，可以重新打开仓库。宿主是否自动重启异常退出的 MCP 进程取决于宿主；面板本身无法启动一个已经退出的服务进程。
-
-如果面板提示连接中断，重新打开 Git Graph 并使用新链接。写操作期间连接中断时，先读取实际 Git 状态，再决定下一步。插件不会自动重试写操作；操作去重记录仅存在于原服务进程，重启后不保留。
-
-## 验证范围
-
-自动化测试覆盖以下行为：
-
-- 将打包目录移动到包含空格和中文的新路径，在该目录启动独立 stdio 进程并读取面板资源；关闭进程后再次启动并握手。
-- 并发打开同一仓库复用服务、超过容量回收、认证访问更新空闲时间、请求执行期间保留服务。
-- 实际 HTTP 服务关闭和重开后生成新令牌，旧令牌被拒绝；打开超过 10 个仓库不再要求重启插件。
-
-测试中的 stdio 客户端按官方规则替换 `${PLUGIN_ROOT}`，验证的是包可迁移性，不代表已经验证桌面宿主的安装流程。仍需在实际桌面版本中验证插件缓存目录加载、原生入口关闭与重开、异常进程退出后的宿主恢复，以及 SSH/WSL 执行主机的一致性。
-
-本次文档核对的测试范围与结果见[当前实现说明](current-implementation.md#本次核对与验证)。
+仓库配置和审阅记录保存在目标仓库的 Git 共用目录，布局偏好保存在浏览器，详见[使用指南](usage.md#设置与审阅进度)。构建和打包不负责清理这些数据；移除插件目录也不等于删除仓库数据。需要清理时，先备份并确认实际保存位置，不要删除整个 Git 共用目录。
