@@ -80,20 +80,25 @@ async function mapLimited(items, count, fn) {
 }
 
 const logFormat = '%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00';
-export async function snapshot(repositoryPath, { limit = 300, scope = '' } = {}) {
+export async function snapshot(repositoryPath, { limit = 300, offset = 0, scope = '', scopes = [], branchGlob = '', firstParent = false, includeReflogs = false, showRemotes = true, showTags = true, showStashes = true } = {}) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 2000) throw new Error('提交数量必须在 1–2000 之间。');
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('历史偏移量必须为非负整数。');
+  if (typeof scope !== 'string' || !Array.isArray(scopes) || scopes.length > 1000 || scopes.some(r => typeof r !== 'string')) throw new Error('历史引用范围无效。');
+  if (typeof branchGlob !== 'string' || branchGlob.length > 1024 || /[\0\r\n]/.test(branchGlob)) throw new Error('分支通配符无效。');
+  if ([firstParent, includeReflogs, showRemotes, showTags, showStashes].some(v => typeof v !== 'boolean')) throw new Error('历史选项必须为布尔值。');
   const { root, bare } = await resolveRepository(repositoryPath);
   const [wtRaw, refsRaw, head] = await Promise.all([
     git(root, ['worktree', 'list', '--porcelain', '-z']),
     git(root, ['for-each-ref', '--format=%(refname)%00%(objectname)%00%(*objectname)%00%(upstream:short)%00%(upstream:track)%00%(symref)', 'refs/heads', 'refs/remotes', 'refs/tags', 'refs/stash']),
     git(root, ['rev-parse', '--verify', 'HEAD']).then(x => x.trim()).catch(() => null),
   ]);
-  const refs = refsRaw.trimEnd().split('\n').filter(Boolean).map(line => {
+  const allRefs = refsRaw.trimEnd().split('\n').filter(Boolean).map(line => {
     const [name, object, peeled, upstream, tracking, symbolic] = line.split('\0');
     return { name, hash: peeled || object, upstream, tracking, symbolic,
       shortName: name.replace(/^refs\/(heads|remotes|tags)\//, ''),
       type: name.startsWith('refs/heads/') ? 'branch' : name.startsWith('refs/remotes/') ? 'remote' : name.startsWith('refs/tags/') ? 'tag' : 'stash' };
   });
+  const refs = allRefs.filter(r => (showRemotes || r.type !== 'remote') && (showTags || r.type !== 'tag') && (showStashes || r.type !== 'stash'));
   const worktrees = await mapLimited(parseWorktrees(wtRaw), 4, async (wt) => {
     const normalize = p => process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p);
     const current = normalize(wt.path) === normalize(root);
@@ -105,15 +110,21 @@ export async function snapshot(repositoryPath, { limit = 300, scope = '' } = {})
   });
   // Detached worktree HEADs are not necessarily reachable from --all.
   const heads = [...new Set([head, ...worktrees.filter(w => !w.prunable).map(w => w.head)].filter(h => /^[a-f0-9]{40,64}$/.test(h || '') && !/^0+$/.test(h)))];
-  let scopeHash;
-  if (scope) {
-    const ref = refs.find(r => r.name === scope);
-    if (!ref) throw new Error('历史范围引用不存在，请刷新。');
-    scopeHash = ref.hash;
+  const selected = [...new Set([...scopes, ...(scope ? [scope] : [])])];
+  for (const name of selected) if (!allRefs.some(r => r.name === name)) throw new Error('历史范围引用不存在，请刷新。');
+  // Match a glob against known refs, never pass user text as a Git revision/option.
+  const matcher = branchGlob ? new RegExp('^' + [...branchGlob].map(c => c === '*' ? '.*' : c === '?' ? '.' : c.replace(/[\\^$+?.()|{}\[\]]/g, '\\$&')).join('') + '$') : null;
+  let selectedRefs = selected.length ? allRefs.filter(r => selected.includes(r.name)) : refs;
+  if (matcher) selectedRefs = selectedRefs.filter(r => ['branch', 'remote'].includes(r.type) && [r.name, r.name.replace(/^refs\//, ''), r.shortName].some(n => matcher.test(n)));
+  const scoped = !!(selected.length || matcher);
+  const scopeHash = scope ? allRefs.find(r => r.name === scope)?.hash : undefined;
+  let tips = [...new Set([...selectedRefs.map(r => r.hash), ...(!scoped ? heads : [])])];
+  if (showStashes && !scoped && allRefs.some(r => r.type === 'stash')) {
+    tips = [...new Set([...tips, ...(await git(root, ['stash', 'list', '--format=%H'])).trim().split('\n').filter(Boolean)])];
   }
   let commits = [];
-  if (heads.length || refs.length) {
-    commits = parseLog(await git(root, ['log', '--topo-order', '--date-order', `--max-count=${limit + 1}`, `--format=${logFormat}`, ...(scopeHash ? [scopeHash] : ['--all', ...heads]), '--']));
+  if (tips.length || (includeReflogs && !scoped && heads.length)) {
+    commits = parseLog(await git(root, ['log', '--topo-order', '--date-order', `--max-count=${limit + 1}`, `--skip=${offset}`, `--format=${logFormat}`, ...(firstParent ? ['--first-parent'] : []), ...(includeReflogs && !scoped ? ['--reflog'] : []), ...tips, '--']));
   }
   const hasMore = commits.length > limit;
   const shallowPath = (await git(root, ['rev-parse', '--path-format=absolute', '--git-path', 'shallow'])).trim();
@@ -125,7 +136,7 @@ export async function snapshot(repositoryPath, { limit = 300, scope = '' } = {})
   }
   const branch = await git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).then(x => x.trim()).catch(() => null);
   return { repository: { path: root, name: path.basename(root), branch, head, bare },
-    commits: commits.slice(0, limit), refs, worktrees, hasMore, limit, scope, scopeHash, snapshotVersion: Date.now().toString(), refreshedAt: new Date().toISOString() };
+    commits: commits.slice(0, limit), refs, worktrees, hasMore, limit, offset, nextOffset: hasMore ? offset + limit : null, scope, scopes, branchGlob, firstParent, includeReflogs, showRemotes, showTags, showStashes, scopeHash, snapshotVersion: Date.now().toString(), refreshedAt: new Date().toISOString() };
 }
 
 // Stop collecting large diffs while draining the process; don't fail on huge files.

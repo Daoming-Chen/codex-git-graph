@@ -3,6 +3,8 @@ import { realpath, lstat, open, readlink, access } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { git, resolveRepository, parseStatus, parseWorktrees, boundedDiff, commitDetail } from './git.mjs';
+import { remoteActionNames, validateRemoteAction } from './remote-actions.mjs';
+import { historyActionNames, validateHistoryAction } from './history-actions.mjs';
 
 const hash = x => createHash('sha256').update(x).digest('hex');
 const sha = x => typeof x === 'string' && /^[a-f0-9]{40,64}$/.test(x);
@@ -126,13 +128,18 @@ export async function fileDiff(repository, input) {
   const result = await boundedDiff(detail.path || root, args);
   return { ...result, file, binary: /Binary files |GIT binary patch/.test(result.patch), submodule: /Subproject commit/.test(result.patch) };
 }
-const actionNames = ['stage', 'unstage', 'commit', 'branch', 'switch', 'worktree'];
+export const actionNames = ['stage', 'unstage', 'commit', 'branch', 'switch', 'worktree', ...remoteActionNames, ...historyActionNames];
 async function validated(repository, action, payload) {
   if (!actionNames.includes(action)) throw new Error('不支持的操作。');
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('操作参数无效。');
+  const { root } = await resolveRepository(repository);
+  const extension = remoteActionNames.includes(action) ? validateRemoteAction : historyActionNames.includes(action) ? validateHistoryAction : null;
+  if (extension) {
+    const v = await extension(root, action, payload, { workState, resolveRef, hash });
+    return { ...v, root, version: hash(JSON.stringify({ version: v.state?.version, ...v.extra })) };
+  }
   const allowed = { stage: ['worktreePath', 'paths'], unstage: ['worktreePath', 'paths'], commit: ['worktreePath', 'message'], branch: ['start', 'name'], switch: ['worktreePath', 'name'], worktree: ['start', 'name', 'target'] }[action];
   if (Object.keys(payload).some(k => !allowed.includes(k))) throw new Error('操作包含未知字段。');
-  const { root } = await resolveRepository(repository);
   let s, args, cwd = root, extra = {};
   if (['stage', 'unstage', 'commit', 'switch'].includes(action)) {
     s = await workState(root, payload.worktreePath); cwd = s.path;
@@ -189,13 +196,14 @@ async function validated(repository, action, payload) {
       }
     }
   }
-  return { root, cwd, args, version: hash(JSON.stringify({ version: s?.version, ...extra })), extra };
+  return { root, cwd, args, version: hash(JSON.stringify({ version: s?.version, ...extra })), extra, state: s };
 }
 async function commonKey(root) { return realpath((await git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim()); }
 const redact = text => text.replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[redacted]@').replace(/\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)\b/g, '[redacted]').replace(/((?:token|password|authorization|secret)\s*[:=]\s*)(\S+)/gi, '$1[redacted]');
+const redactValue = value => typeof value === 'string' ? redact(value) : Array.isArray(value) ? value.map(redactValue) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redactValue(v)])) : value;
 export async function prepareAction(repository, action, payload, expectedVersion) {
   const v = await validated(repository, action, payload);
-  if (['stage', 'unstage', 'commit', 'switch'].includes(action)) {
+  if (v.state) {
     if (!expectedVersion) throw new Error('缺少已审阅的工作区状态版本，请刷新。');
     const viewed = await workState(v.root, payload.worktreePath);
     if (viewed.version !== expectedVersion) throw new Error('已审阅的状态或文件内容已变化，请刷新后重试。');
@@ -204,7 +212,7 @@ export async function prepareAction(repository, action, payload, expectedVersion
   if (preparations.size > 1000) for (const [id, p] of preparations) if (p.expires < Date.now()) preparations.delete(id);
   const actionId = randomUUID(), expires = Date.now() + 120000;
   preparations.set(actionId, { repository: await commonKey(v.root), action, payload: structuredClone(payload), version: v.version, expires });
-  return { actionId, action, target: v.cwd, summary: { ...payload, ...v.extra }, version: v.version, expires, executable: true, command: ['git', ...v.args] };
+  return { actionId, action, target: v.cwd, summary: redactValue({ ...payload, ...v.extra }), version: v.version, expires, executable: true, command: ['git', ...v.args.map(redact)] };
 }
 export async function executeAction(repository, actionId, operationId) {
   if (!/^[a-f0-9-]{36}$/.test(operationId || '')) throw new Error('operationId 必须是 UUID。');
@@ -232,6 +240,10 @@ export async function executeAction(repository, actionId, operationId) {
       result.error = redact(error.message).slice(0, 8000);
       if (p.action === 'worktree') result.residual = { directoryExists: await exists(p.payload.target), branchExists: await git(root, ['show-ref', '--verify', `refs/heads/${p.payload.name}`]).then(() => true, () => false) };
       if (p.action === 'commit') result.observedHead = await git(p.payload.worktreePath, ['rev-parse', 'HEAD']).then(x => x.trim(), () => null);
+      if (p.payload.worktreePath) {
+        const observed = await workState(root, p.payload.worktreePath).catch(() => null);
+        if (observed) result.observedState = { head: observed.head, conflicts: observed.status.conflicts, ongoing: observed.ongoing };
+      }
     }
     result.finishedAt = new Date().toISOString();
     return result;

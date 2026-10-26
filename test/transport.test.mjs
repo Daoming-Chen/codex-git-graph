@@ -9,6 +9,9 @@ import { createFixture } from './fixture.mjs';
 import { createMcpServer } from '../src/server.mjs';
 import { startHttp } from '../src/http.mjs';
 import { randomUUID } from 'node:crypto';
+import { git } from '../src/git.mjs';
+
+const expectedTools = ['git_graph_open', 'git_graph_commit', 'git_graph_worktree', 'git_graph_files', 'git_graph_diff', 'git_graph_file_content', 'git_graph_repository_info', 'git_graph_commit_info', 'git_graph_ref_info', 'git_graph_resolve', 'git_graph_prepare', 'git_graph_execute', 'git_graph_preferences', 'git_graph_save_preferences'].sort();
 
 let f;
 before(async () => { f = await createFixture(); });
@@ -50,11 +53,14 @@ test('MCP advertises thread entrypoint, serves UI and reads real Git data', asyn
   t.after(async () => { await client.close(); await server.close(); });
   await server.mcp.connect(a); await client.connect(b);
   const tools = await client.listTools();
+  assert.deepEqual(tools.tools.map(t => t.name).sort(), expectedTools);
   const open = tools.tools.find(t => t.name === 'git_graph_open');
   assert.deepEqual(open._meta['openai/ui'].entrypoints, [{ type: 'thread' }]);
   assert.equal(tools.tools.find(t => t.name === 'git_graph_execute').annotations.readOnlyHint, false);
   assert.equal(tools.tools.find(t => t.name === 'git_graph_execute').annotations.idempotentHint, true);
-  assert.ok(tools.tools.filter(t => t.name !== 'git_graph_execute').every(t => t.annotations.readOnlyHint));
+  assert.ok(tools.tools.filter(t => !['git_graph_execute', 'git_graph_save_preferences'].includes(t.name)).every(t => t.annotations.readOnlyHint));
+  const preferences = tools.tools.find(t => t.name === 'git_graph_save_preferences');
+  assert.deepEqual(preferences.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
   const resources = await client.readResource({ uri: 'ui://git-graph/panel.html' });
   assert.match(resources.contents[0].mimeType, /mcp-app/);
   const data = await client.callTool({ name: 'git_graph_open', arguments: { repositoryPath: f.root } });
@@ -76,7 +82,140 @@ test('built plugin launches independently from source and completes stdio handsh
   let stderr = ''; transport.stderr?.on('data', chunk => { stderr += chunk; });
   t.after(() => client.close());
   await client.connect(transport);
-  assert.equal((await client.listTools()).tools.length, 8, stderr);
+  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), expectedTools, stderr);
   const data = await client.callTool({ name: 'git_graph_open', arguments: { repositoryPath: f.root, limit: 2 } });
   assert.equal(data.structuredContent.commits.length, 2, stderr);
+});
+
+test('HTTP exposes filtered pages, reference metadata, historical working comparison and prepared tags', async t => {
+  const panel = await startHttp({ repositoryPath: f.root, html: '<title>Parity</title>' });
+  t.after(() => panel.server.close());
+  const headers = { Authorization: `Bearer ${panel.token}` };
+  const request = async (route, query = {}) => {
+    const params = new URLSearchParams(Object.entries(query).map(([key, value]) => [key, typeof value === 'object' ? JSON.stringify(value) : String(value)]));
+    const response = await fetch(`${panel.origin}/api/${route}?${params}`, { headers });
+    const data = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(data));
+    return data;
+  };
+  for (const route of ['repository_info', 'commit_info', 'ref_info', 'file_content']) assert.equal((await fetch(`${panel.origin}/api/${route}`)).status, 401);
+  const statusBefore = await git(f.root, ['status', '--porcelain=v1', '-z']);
+  const refsBefore = await git(f.root, ['show-ref']);
+  const first = await request('snapshot', { limit: 1, scopes: ['refs/heads/feat/commit-detail'], showTags: false, showRemotes: false });
+  assert.equal(first.commits[0].hash, f.feature);
+  assert.equal(first.nextOffset, 1);
+  assert.ok(first.refs.every(ref => !['remote', 'tag'].includes(ref.type)));
+  const next = await request('snapshot', { limit: 1, offset: first.nextOffset, branchGlob: 'heads/feat/*' });
+  assert.equal(next.commits[0].hash, f.first);
+  const parents = await request('snapshot', { scope: 'refs/heads/main', firstParent: true, includeReflogs: false });
+  assert.ok(!parents.commits.some(commit => commit.hash === f.feature));
+  assert.equal((await fetch(`${panel.origin}/api/snapshot?showTags=invalid`, { headers })).status, 400);
+  assert.equal((await fetch(`${panel.origin}/api/snapshot?scopes=%5B%22--all%22%5D`, { headers })).status, 400);
+  assert.ok(Array.isArray((await request('repository_info')).stashes));
+  assert.equal((await request('ref_info', { ref: 'refs/tags/v0.1.0' })).annotated, true);
+  const info = await request('commit_info', { hash: f.first });
+  assert.equal(info.signature.status, 'N');
+  assert.ok(info.tags.includes('refs/tags/v0.1.0'));
+  const input = { worktreePath: f.root, a: f.first };
+  const comparison = await request('files', { input });
+  assert.equal(comparison.comparison, true);
+  const file = comparison.files.find(file => file.path === 'README.md');
+  const selected = { ...input, fileId: file.id, version: comparison.version };
+  assert.match((await request('diff', { input: selected })).patch, /Local pending changes/);
+  assert.doesNotMatch((await request('file_content', { input: { ...selected, revision: 'before' } })).text, /Local pending changes/);
+  assert.match((await request('file_content', { input: { ...selected, revision: 'current' } })).text, /Local pending changes/);
+  assert.equal((await fetch(`${panel.origin}/api/file_content?input=${encodeURIComponent(JSON.stringify({ ...selected, fileId: '../outside' }))}`, { headers })).status, 400);
+  assert.equal((await fetch(`${panel.origin}/api/prepare?action=tag-add`, { headers })).status, 405);
+  assert.equal((await fetch(`${panel.origin}/api/execute`, { headers })).status, 405);
+  assert.equal(await git(f.root, ['status', '--porcelain=v1', '-z']), statusBefore);
+  assert.equal(await git(f.root, ['show-ref']), refsBefore);
+  const preparedResponse = await fetch(`${panel.origin}/api/prepare`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'tag-add', payload: { name: 'http-parity', start: f.first, message: 'transport annotation' } }) });
+  const prepared = await preparedResponse.json();
+  assert.equal(preparedResponse.status, 200, JSON.stringify(prepared));
+  assert.ok(prepared.actionId);
+  // Preparation itself does not create the tag.
+  await assert.rejects(git(f.root, ['show-ref', '--verify', 'refs/tags/http-parity']));
+  const executeResponse = await fetch(`${panel.origin}/api/execute`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ actionId: prepared.actionId, operationId: randomUUID() }) });
+  const result = await executeResponse.json();
+  assert.equal(result.state, 'completed', result.error);
+  assert.equal((await request('ref_info', { ref: 'refs/tags/http-parity' })).message.trim(), 'transport annotation');
+});
+
+test('MCP parity tools accept new schemas and preserve read-only preparation', async t => {
+  const server = createMcpServer('<title>Parity</title>');
+  const client = new Client({ name: 'parity-test', version: '1.0.0' });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  t.after(async () => { await client.close(); await server.close(); });
+  await server.mcp.connect(a); await client.connect(b);
+  const call = async (name, args = {}) => {
+    const result = await client.callTool({ name: `git_graph_${name}`, arguments: { repositoryPath: f.root, ...args } });
+    assert.notEqual(result.isError, true, JSON.stringify(result));
+    return result.structuredContent;
+  };
+  const page = await call('open', { limit: 1, offset: 1, scopes: ['refs/heads/feat/commit-detail'], firstParent: true, showStashes: false });
+  assert.equal(page.commits[0].hash, f.first);
+  assert.equal(page.showStashes, false);
+  assert.equal((await call('ref_info', { ref: 'refs/tags/v0.1.0' })).annotated, true);
+  assert.equal((await call('commit_info', { hash: f.first })).includedInHead, true);
+  assert.ok(Array.isArray((await call('repository_info')).remotes));
+  const input = { worktreePath: f.root, a: f.first };
+  const files = await call('files', { input });
+  const fileId = files.files.find(file => file.path === 'README.md').id;
+  assert.match((await call('diff', { input: { ...input, fileId } })).patch, /Local pending changes/);
+  assert.match((await call('file_content', { input: { ...input, fileId, revision: 'after' } })).text, /Local pending changes/);
+  const prepared = await call('prepare', { action: 'remote-add', payload: { name: 'parity-local', url: f.directory } });
+  assert.ok(prepared.actionId);
+  assert.doesNotMatch(await git(f.root, ['remote']), /parity-local/);
+  const invalid = await client.callTool({ name: 'git_graph_file_content', arguments: { repositoryPath: f.root, input: { hash: f.first, fileId: 'README.md', revision: 'invalid' } } });
+  assert.equal(invalid.isError, true);
+  const noConfirmation = await client.callTool({ name: 'git_graph_prepare', arguments: { repositoryPath: f.root, action: 'tag-delete', payload: { name: 'v0.1.0' } } });
+  assert.equal(noConfirmation.isError, true);
+});
+
+test('preferences and review progress persist across HTTP service ports and linked worktrees', async t => {
+  const first = await startHttp({ repositoryPath: f.root, html: '<title>Preferences</title>' });
+  t.after(() => first.server.close());
+  const headers = { Authorization: `Bearer ${first.token}` };
+  const statusBefore = await git(f.root, ['status', '--porcelain=v1', '-z']);
+  const key = `${f.first}:${f.merge}`;
+  const input = {
+    config: { issueUrl: 'https://issues.example.test/{id}', prUrl: 'https://git.example.test/compare/{branch}', dateFormat: 'full', autoLoad: true, fileTree: true, columnWidths: { author: 130, date: 110, sha: 90 } },
+    review: { key, active: true, files: ['README.md', 'detail.js'] },
+  };
+  assert.equal((await fetch(`${first.origin}/api/preferences`)).status, 401);
+  const body = JSON.stringify({ input });
+  assert.equal((await fetch(`${first.origin}/api/save_preferences`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })).status, 401);
+  assert.equal((await fetch(`${first.origin}/api/save_preferences?input=${encodeURIComponent(JSON.stringify(input))}`, { headers })).status, 405);
+  assert.deepEqual(await (await fetch(`${first.origin}/api/preferences`, { headers })).json(), { config: {}, reviews: {} });
+  const savedResponse = await fetch(`${first.origin}/api/save_preferences`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body });
+  const saved = await savedResponse.json();
+  assert.equal(savedResponse.status, 200, JSON.stringify(saved));
+  assert.deepEqual(saved.config, input.config);
+  assert.deepEqual(saved.reviews[key].files, input.review.files);
+  // Bind the replacement before retiring the old server so its random port is
+  // guaranteed to differ; storage must not be tied to browser origin or token.
+  const second = await startHttp({ repositoryPath: f.linked, html: '<title>Reopened</title>' });
+  t.after(() => second.server.close());
+  assert.notEqual(second.origin, first.origin);
+  await new Promise(resolve => first.server.close(resolve));
+  assert.equal((await fetch(`${second.origin}/api/preferences`, { headers })).status, 401);
+  const secondHeaders = { Authorization: `Bearer ${second.token}` };
+  const reopened = await (await fetch(`${second.origin}/api/preferences`, { headers: secondHeaders })).json();
+  assert.deepEqual(reopened, saved);
+  assert.equal(reopened.reviews[key].active, true);
+  assert.equal(await git(f.root, ['status', '--porcelain=v1', '-z']), statusBefore);
+  const client = new Client({ name: 'preferences-test', version: '1.0.0' });
+  const server = createMcpServer('<title>Preferences MCP</title>');
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  t.after(async () => { await client.close(); await server.close(); });
+  await server.mcp.connect(a); await client.connect(b);
+  const loaded = await client.callTool({ name: 'git_graph_preferences', arguments: { repositoryPath: f.root } });
+  assert.deepEqual(loaded.structuredContent, saved);
+  const changed = await client.callTool({ name: 'git_graph_save_preferences', arguments: { repositoryPath: f.linked, input: { review: { key, active: false, files: ['README.md'] } } } });
+  assert.notEqual(changed.isError, true, JSON.stringify(changed));
+  assert.deepEqual(changed.structuredContent.config, input.config);
+  assert.equal(changed.structuredContent.reviews[key].active, false);
+  const afterMcp = await (await fetch(`${second.origin}/api/preferences`, { headers: secondHeaders })).json();
+  assert.deepEqual(afterMcp.reviews[key].files, ['README.md']);
+  assert.equal(afterMcp.reviews[key].active, false);
 });

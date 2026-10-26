@@ -1,16 +1,22 @@
 # Codex Git Graph
 
-在 Codex 右侧浏览本地 Git 提交图、分支、标签和多个 Worktree，逐文件审阅差异并完成本地暂存与提交。数据来自本机 Git，不需要 GitHub 或 GitLab 登录。
+在 Codex 右侧浏览 Git 提交图、分支、标签和多个 Worktree，审阅差异、管理引用并执行 Git 操作。历史读取使用本机 Git；远程同步沿用本机 Git 的认证配置。
 
 ## 功能
 
 - 28px 连续提交表、合并父边、引用与 Worktree 标记；深色、浅色和系统主题。
 - 脏工作区各有 WIP 节点，空仓库可直接审阅文件并创建首次提交。识别 detached、锁定、失效和裸仓库。
-- 查找已加载提交并导航命中；按完整引用查询可达祖先；定位 HEAD、引用跳转、两端点 A → B 树差异和合并父选择。
+- 查找已加载提交的摘要、作者、日期、引用和 SHA；多引用／通配符筛选、第一父提交、reflog、引用显隐；定位 HEAD、引用跳转、两端点 A → B 树差异和合并父选择。
 - 结构化文件清单、已暂存/未暂存/未跟踪/冲突分组、文件级统一 diff。未跟踪文本最多预览 256 KiB，二进制与子模块有明确提示。
 - 明确选择文件后暂存或取消暂存；提交仅包含 index，保留未暂存内容。普通提交遵循本机 hooks 和签名配置。
-- 创建分支、完全干净的工作区切换本地分支、使用新分支和新目录创建 Worktree。
-- 默认 300 条历史，按 300 条续载，最多 2000 条；查找只覆盖已加载范围。
+- 创建、切换、重命名和删除分支；检出提交、创建远程跟踪分支；标签创建、详情、签名、删除与推送；Remote 增改删及 Prune。
+- Fetch、Pull（快进／合并／变基）、普通 Push 和设置上游。远程分支删除绑定最近获取的 SHA，远程变化时拒绝执行。
+- Merge、Rebase、Cherry-pick、Revert、Reset、线性历史 Drop；冲突文件标记解决，继续／中止进行中的操作。
+- Stash 保存、应用、弹出、删除、恢复 index、创建分支；指定文件丢弃修改或清理未跟踪文件。
+- 历史提交与工作目录比较，查看修改前／后／当前文件，复制路径；提交签名与包含关系；目录分组、列宽调整、日期格式和 Issue／PR URL 模板。
+- 审阅进度和仓库配置保存在 Git common dir 的 `codex-git-graph-state.json`，跨服务端口和 Worktree 共用；审阅记录保留 90 天。仓库配置支持导出／导入。
+- 默认 300 条历史，每次续载 300 条；单次查询最多 2000 条，可通过分页继续浏览。查找仍只覆盖已加载范围。
+- 使用新分支和新目录创建 Worktree，识别被其他 Worktree 占用的分支。
 
 ## 开发与打开
 
@@ -39,19 +45,21 @@ npm run demo
 
 构建生成的 `.mcp.json` 使用本机 Node.js 与构建文件绝对路径。移动仓库、更换 Node.js 或换机器后需重新构建并刷新插件；此包面向本地开发安装。
 
-工具注册官方 MCP Apps 资源及 thread entrypoint。本机原生 stdio 固定工具入口仍未完成安装后验证，不能承诺出现永久 Git Graph 按钮。已验证的入口是工具返回 `panelUrl`，再由 Codex `open_in_codex` 放到右侧浏览器。不会自动跟随聊天切换仓库，也没有代理运行状态或 PR/CI 联动。
+工具注册官方 MCP Apps 资源及 thread entrypoint。本机原生 stdio 固定工具入口仍未完成安装后验证，不能承诺出现永久 Git Graph 按钮。已验证的入口是工具返回 `panelUrl`，再由 Codex `open_in_codex` 放到右侧浏览器。不会自动跟随聊天切换仓库，也没有代理运行状态或 PR/CI 状态联动；PR／MR 入口按配置打开创建表单。
 
 回环地址仅表示服务所在主机。SSH、WSL 和跨主机转发尚未验证；不要公开服务或创建公网隧道。
 
 ## 读写边界
 
-HTTP 服务绑定单个仓库，只监听 `127.0.0.1`；API 需要随机 Bearer 令牌，校验 Host/Origin，不开放 CORS。GET 只查询，写操作仅 POST JSON。MCP 写工具独立声明可写；MCP 继承进程文件权限，没有额外的仓库授权隔离。
+HTTP 服务绑定单个仓库，只监听 `127.0.0.1`；API 需要随机 Bearer 令牌，校验 Host/Origin，不开放 CORS。GET 只查询，写操作仅 POST JSON。MCP 的 Git 执行和插件偏好保存工具独立声明可写；MCP 继承进程文件权限，没有额外的仓库授权隔离。
 
 写入经过 prepare/execute：绑定已审阅状态与文件内容指纹，执行前重验、两分钟过期、按 Git common dir 串行执行。operationId 在本进程内去重；重启或另一个服务进程不共享记录。多个 Git 查询不是原子事务，外部进程仍可能在复核后修改仓库。失败保留输入，超时标记结果未知并读取实际 HEAD；不自动重试或清理残留目录。
 
 Git 使用参数数组和 literal pathspec；目标 Worktree 验证 common dir，文件只能来自返回清单。未跟踪文件不读取符号链接目标内容；普通文件指纹流式计算，预览限制读取量。错误输出对常见 URL userinfo、GitHub token 和 token/password/authorization/secret 字段脱敏，但任意 hook 可输出其他私密内容，展开诊断前应留意实际内容。
 
-不提供远程获取/推送、stash、merge/rebase、历史重写、force、丢弃或删除操作。远程引用是本地最近获取的状态。
+删除、丢弃、Reset、Rebase 和 Drop 在准备阶段要求明确确认。文件操作绑定其所属 Worktree 和已审阅版本；Stash 操作绑定提交 SHA 与列表状态。同步前应核对目标 Remote 和分支；Fetch 前的远程引用仍是本地最近获取的状态。
+
+不提供普通强制推送、交互式 Rebase 编辑器、Worktree 删除或冲突编辑器。Drop 支持当前分支上的单父线性提交，不支持根提交或跨合并链。冲突内容需先在编辑器中修改，再刷新面板标记解决。URL 模板只打开 Issue／PR／MR 页面，不代为提交表单。文件内容与 diff 显示最多 256 KiB；当前文件查看在面板内完成，不等同于 VS Code 编辑器集成。
 
 ## 开发验证
 
@@ -67,6 +75,9 @@ npm test
 | --- | --- |
 | `src/git.mjs` | Git 查询、NUL 解析与有界 diff |
 | `src/actions.mjs` | 文件清单、逐文件 diff、prepare/execute 和版本校验 |
+| `src/remote-actions.mjs`、`src/history-actions.mjs` | 远程引用、历史及工作区写操作校验 |
+| `src/review.mjs` | 元数据、历史与工作目录比较、文件内容 |
+| `src/preferences.mjs` | 仓库偏好与审阅进度持久化 |
 | `src/graph.mjs` | 拓扑与 WIP 布局 |
 | `src/http.mjs`、`src/server.mjs` | 共享服务的 HTTP/MCP 传输 |
 | `src/ui/` | 同一套响应式面板 |

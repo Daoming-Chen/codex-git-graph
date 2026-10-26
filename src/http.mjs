@@ -2,6 +2,8 @@ import { createServer } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { snapshot, commitDetail, worktreeDetail, resolveRepository } from './git.mjs';
 import { filesDetail, fileDiff, resolveRef, prepareAction, executeAction } from './actions.mjs';
+import { repositoryInfo, commitInfo, refInfo, reviewFiles, reviewDiff, fileContent } from './review.mjs';
+import { readPreferences, savePreferences } from './preferences.mjs';
 
 export async function startHttp({ repositoryPath, html, port = 0, devHarness = false }) {
   const { root } = await resolveRepository(repositoryPath);
@@ -29,7 +31,7 @@ export async function startHttp({ repositoryPath, html, port = 0, devHarness = f
     }
     try {
       let data;
-      const writable = ['/api/prepare', '/api/execute'].includes(url.pathname);
+      const writable = ['/api/prepare', '/api/execute', '/api/save_preferences'].includes(url.pathname);
       if ((writable && req.method !== 'POST') || (!writable && req.method !== 'GET')) { res.writeHead(405).end('Method not allowed'); return; }
       let body;
       if (writable) {
@@ -38,11 +40,23 @@ export async function startHttp({ repositoryPath, html, port = 0, devHarness = f
         for await (const chunk of req) { size += chunk.length; if (size > 128 * 1024) throw new Error('请求过大。'); chunks.push(chunk); }
         body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       }
-      if (url.pathname === '/api/snapshot') data = await snapshot(root, { limit: Number(url.searchParams.get('limit') || 300), scope: url.searchParams.get('scope') || '' });
+      if (url.pathname === '/api/snapshot') {
+        const options={limit:Number(url.searchParams.get('limit')||300),offset:Number(url.searchParams.get('offset')||0),scope:url.searchParams.get('scope')||'',scopes:JSON.parse(url.searchParams.get('scopes')||'[]'),branchGlob:url.searchParams.get('branchGlob')||''};
+        for(const key of ['firstParent','includeReflogs','showRemotes','showTags','showStashes']) if(url.searchParams.has(key)) {
+          const value=url.searchParams.get(key);if(!['true','false'].includes(value))throw new Error('历史选项必须为布尔值。');options[key]=value==='true';
+        }
+        data=await snapshot(root,options);
+      }
       else if (url.pathname === '/api/commit') data = await commitDetail(root, url.searchParams.get('hash') || '');
       else if (url.pathname === '/api/worktree') data = await worktreeDetail(root, url.searchParams.get('path') || '');
-      else if (url.pathname === '/api/files') data = await filesDetail(root, JSON.parse(url.searchParams.get('input') || '{}'));
-      else if (url.pathname === '/api/diff') data = await fileDiff(root, JSON.parse(url.searchParams.get('input') || '{}'));
+      else if (url.pathname === '/api/files') data = await reviewFiles(root, JSON.parse(url.searchParams.get('input') || '{}'));
+      else if (url.pathname === '/api/diff') data = await reviewDiff(root, JSON.parse(url.searchParams.get('input') || '{}'));
+      else if (url.pathname === '/api/repository_info') data = await repositoryInfo(root);
+      else if (url.pathname === '/api/commit_info') data = await commitInfo(root, url.searchParams.get('hash') || '');
+      else if (url.pathname === '/api/ref_info') data = await refInfo(root, url.searchParams.get('ref') || '');
+      else if (url.pathname === '/api/file_content') data = await fileContent(root, JSON.parse(url.searchParams.get('input') || '{}'));
+      else if (url.pathname === '/api/preferences') data = await readPreferences(root);
+      else if (url.pathname === '/api/save_preferences') data = await savePreferences(root, body.input);
       else if (url.pathname === '/api/resolve') data = await resolveRef(root, url.searchParams.get('ref') || '');
       else if (url.pathname === '/api/prepare') data = await prepareAction(root, body.action, body.payload, body.expectedVersion);
       else if (url.pathname === '/api/execute') data = await executeAction(root, body.actionId, body.operationId);
