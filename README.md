@@ -1,10 +1,10 @@
 # Codex Git Graph
 
-在 Codex 右侧浏览 Git 提交图、分支、标签和多个 Worktree，审阅差异、管理引用并执行 Git 操作。历史读取使用本机 Git；远程同步沿用本机 Git 的认证配置。
+在 Codex 右侧查看 Git 提交图、分支、标签和多个 Worktree，审阅差异、管理引用并执行 Git 操作。历史读取和远程同步均使用本机 Git；远程同步沿用现有认证配置。
 
 ## 功能
 
-- 28px 连续提交表、合并父边、引用与 Worktree 标记；深色、浅色和系统主题。
+- 24px 连续提交表，显示合并父边、引用与 Worktree 标记；使用圆点节点，行底色随图轨道颜色向右渐隐；支持深色、浅色和系统主题。
 - 脏工作区各有 WIP 节点，空仓库可直接审阅文件并创建首次提交。识别 detached、锁定、失效和裸仓库。
 - 查找已加载提交的摘要、作者、日期、引用和 SHA；多引用／通配符筛选、第一父提交、reflog、引用显隐；定位 HEAD、引用跳转、两端点 A → B 树差异和合并父选择。
 - 结构化文件清单、已暂存/未暂存/未跟踪/冲突分组、文件级统一 diff。未跟踪文本最多预览 256 KiB，二进制与子模块有明确提示。
@@ -73,7 +73,7 @@ npm run check
 npm test
 ```
 
-测试只在 `.test-output/` 创建和修改独立 fixture。受限环境可能阻止回环连接或 Git 子进程，需在允许这些操作的本地终端运行。实现与实测范围见 [第二版报告](docs/review/05-implementation-report.md)。
+测试只在 `.test-output/` 创建和修改独立 fixture。受限环境可能阻止回环连接或 Git 子进程，需在允许这些操作的本地终端运行。当前实现和验证范围见[当前实现说明](docs/current-implementation.md)；历次设计、截图和验收见[评审索引](docs/review/00-review-index.md)。
 
 | 文件 | 职责 |
 | --- | --- |
@@ -82,9 +82,11 @@ npm test
 | `src/remote-actions.mjs`、`src/history-actions.mjs` | 远程引用、历史及工作区写操作校验 |
 | `src/review.mjs` | 元数据、历史与工作目录比较、文件内容 |
 | `src/preferences.mjs` | 仓库偏好与审阅进度持久化 |
+| `src/workspace-context.mjs`、`src/ui/workspace.js` | MCP roots 仓库解析、界面切换与旧请求失效 |
+| `src/panel-manager.mjs` | HTTP 仓库服务复用、容量限制与空闲回收 |
 | `src/graph.mjs` | 拓扑与 WIP 布局 |
 | `src/http.mjs`、`src/server.mjs` | 共享服务的 HTTP/MCP 传输 |
-| `src/ui/` | 同一套响应式面板 |
+| `src/ui/` | HTTP/MCP 共用面板；`features.js` 承载同步、历史操作、筛选和审阅配置 |
 | `test/` | 真实 Git、通信与压力 fixture |
 
 接口依据：[Plugin Extensions](https://developers.openai.com/plugins/build/extensions)、[MCP server and UI quickstart](https://developers.openai.com/plugins/build/app-quickstart)、[Package your plugin](https://developers.openai.com/plugins/build/plugins)。
