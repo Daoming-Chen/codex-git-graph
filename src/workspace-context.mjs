@@ -1,14 +1,28 @@
 import { fileURLToPath } from 'node:url';
 import { resolveRepository } from './git.mjs';
+import { codexRepositoryHint } from './codex-context.mjs';
 
 // MCP roots are the only standardized filesystem context exposed by this SDK.
 // A root is a workspace boundary, not a guarantee of the active thread's repo.
-export async function repositoryContext(server, { repositoryPath, environmentPath = process.env.GIT_GRAPH_REPO, signal, resolve = resolveRepository } = {}) {
+export async function repositoryContext(server, { repositoryPath, environmentPath = process.env.GIT_GRAPH_REPO, meta, signal, resolve = resolveRepository, codexHint = codexRepositoryHint } = {}) {
   const resolved = async (input, source) => {
     const { root } = await resolve(input);
     return { repositoryPath: root, needsRepository: false, context: { source, status: 'resolved', candidates: [{ path: root }] } };
   };
   if (repositoryPath) return resolved(repositoryPath, 'explicit');
+  const hint = await codexHint(meta);
+  if (hint?.error) return { needsRepository: true, context: { source: 'codex', status: 'error', candidates: [], reason: hint.error } };
+  if (hint?.paths) {
+    const candidates = [];
+    for (const input of hint.paths) {
+      try {
+        const { root } = await resolve(input);
+        if (!candidates.some(candidate => candidate.path === root)) candidates.push({ path: root });
+      } catch { /* A project folder need not be a Git repository. */ }
+    }
+    if (candidates.length === 1) return { repositoryPath: candidates[0].path, needsRepository: false, context: { source: hint.source, status: 'resolved', candidates } };
+    return { needsRepository: true, context: { source: hint.source, status: candidates.length > 1 ? 'ambiguous' : 'unavailable', candidates, reason: candidates.length > 1 ? '当前项目包含多个仓库，请选择要查看的仓库。' : '当前聊天或项目目录不是可访问的本地 Git 仓库。' } };
+  }
   if (server.getClientCapabilities()?.roots) {
     let roots;
     try { ({ roots } = await server.listRoots({}, { timeout: 5000, signal })); }

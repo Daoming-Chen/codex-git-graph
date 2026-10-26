@@ -19,10 +19,10 @@ async function readUi() {
   for (const filename of [path.join(here, 'graph.html'), path.join(here, '../plugins/codex-git-graph/dist/graph.html')]) {
     try { return await readFile(filename, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
-  throw new Error('请先运行 npm run build，生成 Git Graph 面板。');
+  throw new Error('请先运行 npm run build，生成 WorkGraph 面板。');
 }
 
-export function createMcpServer(html) {
+export function createMcpServer(html, { contextOptions = {} } = {}) {
   const mcp = new McpServer({ name: 'codex-git-graph', version: '0.3.0' });
   const uri = 'ui://git-graph/panel.html';
   const panels = createPanelManager({ html });
@@ -39,18 +39,18 @@ export function createMcpServer(html) {
     try { return { content: [], structuredContent: await fn(args, extra) }; }
     catch (error) { return { isError: true, content: [{ type: 'text', text: error.message }] }; }
   };
-  const repo = { repositoryPath: z.string().optional().describe('Absolute repository path. Open can also resolve a single local Git MCP root or GIT_GRAPH_REPO.') };
+  const repo = { repositoryPath: z.string().optional().describe('Absolute repository path override. Open automatically resolves the local Codex conversation/project, a single local Git MCP root, or GIT_GRAPH_REPO.') };
   const requiredRepo = input => {
     const selected = input || process.env.GIT_GRAPH_REPO;
     if (!selected) throw new Error('请先选择仓库。');
     return selected;
   };
   registerAppTool(mcp, 'git_graph_open', {
-    title: 'Git Graph', description: 'Open Git history and local worktree review. Uses an explicit repository path, a single local Git MCP root, or GIT_GRAPH_REPO; otherwise requests a repository selection. Returns a loopback browser panel URL.',
+    title: 'WorkGraph', description: 'Open Git history and local worktree review. Automatically resolves the local Codex conversation or selected project; also accepts an explicit repository path, a single local Git MCP root, or GIT_GRAPH_REPO. Returns a loopback browser panel URL.',
     inputSchema: { ...repo, limit: z.number().int().min(1).max(2000).default(300), offset:z.number().int().nonnegative().default(0), scope: z.string().default(''), scopes:z.array(z.string()).optional(),branchGlob:z.string().optional(),firstParent:z.boolean().optional(),includeReflogs:z.boolean().optional(),showRemotes:z.boolean().optional(),showTags:z.boolean().optional(),showStashes:z.boolean().optional() }, annotations,
     _meta: { ui: { resourceUri: uri, visibility: ['app', 'model'] }, 'openai/ui': { entrypoints: [{ type: 'thread' }] } },
   }, safely(async ({ repositoryPath, ...options }, extra) => {
-    const binding = await repositoryContext(mcp.server, { repositoryPath, signal: extra?.signal });
+    const binding = await repositoryContext(mcp.server, { ...contextOptions, repositoryPath, meta: extra?._meta, signal: extra?.signal });
     if (binding.needsRepository) return binding;
     const data = await snapshot(binding.repositoryPath, options);
     const key = data.repository.path;
@@ -58,9 +58,9 @@ export function createMcpServer(html) {
     return { ...data, context: binding.context, panelUrl: panel.url };
   }));
   registerAppTool(mcp, 'git_graph_context', {
-    title: '读取 Workspace 上下文', description: 'Resolve the current local repository from standardized MCP roots without guessing host-specific session fields.',
+    title: '读取 Workspace 上下文', description: 'Resolve the current local repository from per-request Codex conversation metadata and local project state, standardized MCP roots, or GIT_GRAPH_REPO.',
     inputSchema: {}, annotations, _meta: { ui: { resourceUri: uri, visibility: ['app'] } },
-  }, safely((args, extra) => repositoryContext(mcp.server, { signal: extra?.signal })));
+  }, safely((args, extra) => repositoryContext(mcp.server, { ...contextOptions, meta: extra?._meta, signal: extra?.signal })));
   registerAppTool(mcp, 'git_graph_commit', {
     title: '查看提交', description: 'Read commit details and a bounded patch; merges compare to the first parent.',
     inputSchema: { ...repo, hash: z.string().regex(/^[a-f0-9]{40,64}$/) }, annotations,
@@ -97,7 +97,7 @@ async function main() {
   const html = await readUi();
   if (args.includes('--http')) {
     const panel = await startHttp({ repositoryPath: path.resolve(get('--repo') || process.env.GIT_GRAPH_REPO || process.cwd()), html, port: Number(get('--port') || 0) });
-    console.log(`Git Graph: ${panel.url}`);
+    console.log(`WorkGraph: ${panel.url}`);
     process.once('SIGINT', () => panel.server.close());
     process.once('SIGTERM', () => panel.server.close());
   } else {
