@@ -1,0 +1,43 @@
+import { mkdtemp, mkdir, writeFile, appendFile } from 'node:fs/promises';
+import path from 'node:path';
+import { git } from '../src/git.mjs';
+
+export async function createFixture() {
+  const base = path.resolve('.test-output'); await mkdir(base, { recursive: true });
+  const directory = await mkdtemp(path.join(base, 'repo-'));
+  const root = path.join(directory, 'studio 中文'); await mkdir(root);
+  const run = (...args) => git(root, args);
+  await run('init', '-b', 'main');
+  await run('config', 'user.name', 'Alex Chen'); await run('config', 'user.email', 'alex@example.test');
+  await writeFile(path.join(root, 'README.md'), '# Orbit Studio\n');
+  await writeFile(path.join(root, 'rename me.txt'), 'original\n');
+  await run('add', '.'); await run('commit', '-m', 'feat: initialize workspace');
+  const first = (await run('rev-parse', 'HEAD')).trim();
+  await run('checkout', '-b', 'feat/commit-detail');
+  await writeFile(path.join(root, 'detail.js'), 'export const detail = true;\n');
+  await run('add', '.'); await run('commit', '-m', 'feat: add commit details and inline diff');
+  const feature = (await run('rev-parse', 'HEAD')).trim();
+  await run('checkout', 'main');
+  await writeFile(path.join(root, 'theme.css'), ':root { color-scheme: dark; }\n');
+  await run('add', '.'); await run('commit', '-m', 'style: refine graph colors and row spacing');
+  await run('merge', '--no-ff', 'feat/commit-detail', '-m', 'Merge branch feat/commit-detail');
+  const merge = (await run('rev-parse', 'HEAD')).trim();
+  await run('tag', '-a', 'v0.1.0', '-m', 'First preview');
+  await run('update-ref', 'refs/remotes/origin/main', merge);
+  const linked = path.join(directory, 'worktree with spaces');
+  await run('worktree', 'add', '-b', 'codex/worktree-panel', linked, first);
+  await writeFile(path.join(linked, 'worktrees.js'), 'export const panel = true;\n');
+  await git(linked, ['add', '.']); await git(linked, ['commit', '-m', 'feat: show worktrees alongside the graph']);
+  await appendFile(path.join(linked, 'worktrees.js'), '// pending layout\n');
+  await writeFile(path.join(linked, 'notes 中文.txt'), 'Untracked notes\n');
+  await run('worktree', 'lock', '--reason', 'Active preview', linked);
+  const detached = path.join(directory, 'detached');
+  await run('worktree', 'add', '--detach', detached, feature);
+  await writeFile(path.join(detached, 'experiment.txt'), 'experiment\n');
+  await git(detached, ['add', '.']); await git(detached, ['commit', '-m', 'experiment: alternate graph layout']);
+  const detachedHead = (await git(detached, ['rev-parse', 'HEAD'])).trim();
+  await run('mv', 'rename me.txt', '重命名 file.txt');
+  await appendFile(path.join(root, 'README.md'), '\nLocal pending changes\n');
+  await writeFile(path.join(root, 'untracked.txt'), '<script>not executable</script>');
+  return { directory, root, linked, detached, first, feature, merge, detachedHead };
+}
