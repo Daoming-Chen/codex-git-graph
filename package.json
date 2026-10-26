@@ -1,0 +1,26 @@
+{
+  "name": "codex-git-graph",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node src/server.mjs --http",
+    "mcp": "node src/server.mjs",
+    "demo": "node scripts/demo.mjs",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "check": "node --check src/server.mjs && node --check src/git.mjs && node --check src/ui/app.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "2.0.3",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@vscode/codicons": "^0.0.44",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

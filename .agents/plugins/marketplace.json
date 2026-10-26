@@ -1,0 +1,12 @@
+{
+  "name": "codex-git-graph-local",
+  "interface": { "displayName": "Git Graph · 本地开发" },
+  "plugins": [
+    {
+      "name": "codex-git-graph",
+      "source": { "source": "local", "path": "./plugins/codex-git-graph" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}
