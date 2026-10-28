@@ -1,49 +1,114 @@
-// Live repository projection. Read-only; all write operations remain in Git mode.
+// Read-only work projection. Agent-maintained records provide intent; Git provides evidence.
 export function installWorkGraph({call}) {
   const $=id=>document.getElementById(id);
-  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let data, selected, query='', filter='全部', generation=0, request=0, detail=true;
-  const toggle=document.createElement('button'); toggle.id='work-mode'; toggle.textContent='Git 历史'; $('repo-name').after(toggle);
+  const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let data,selected=null,query='',filter='全部',generation=0,request=0,patchRequest=0,detail=false,tab='progress',detailRatio=.34,drag=null;
+  const expanded=new Set(),searchCollapsed=new Set();
+  const toggle=document.createElement('button');toggle.id='work-mode';toggle.textContent='Git 历史';$('repo-name').after(toggle);
   const brand=document.createElement('strong');brand.className='work-brand';brand.textContent='WorkGraph';toggle.before(brand);
   const root=document.createElement('section');root.id='work-view';root.setAttribute('aria-label','仓库工作进展');
-  root.innerHTML='<div class="bar work-toolbar"><strong>工作进展</strong><span class="muted" id="work-project"></span><select id="work-filter" aria-label="工作状态筛选"><option>全部</option><option>进行中</option><option>已完成</option><option>已搁置</option><option>待开始</option></select><input id="work-search" class="grow" placeholder="搜索工作与提交" aria-label="搜索工作与提交"><button id="work-reload">刷新</button><button id="work-theme">主题</button></div><div class="work-lanes bar" id="work-lanes"></div><div class="work-layout"><section class="work-list"><div class="work-row table-head"><span>轨道</span><span>工作 / 提交</span><span>状态</span><span>时间</span></div><div id="work-rows"></div></section><aside id="work-detail" aria-label="工作详情"></aside></div><div class="work-footer muted"><span id="work-count"></span><span>本地真实数据</span></div>';
+  root.innerHTML=`<div class="work-overview"><div class="work-heading"><h1>工作进展</h1><span id="work-project"></span></div><div id="work-lanes" class="work-lanes" aria-label="工作状态总览"></div></div>
+    <div class="work-toolbar"><select id="work-filter" aria-label="工作状态筛选"><option>全部</option><option>进行中</option><option>已完成</option><option>已搁置</option><option>待开始</option></select><input id="work-search" type="search" placeholder="搜索工作与依据" aria-label="搜索工作与依据"><span class="grow"></span><button id="work-reload">刷新</button><button id="work-theme" aria-label="切换明暗主题">主题</button></div>
+    <div class="work-layout" id="work-layout"><section class="work-list" id="work-list" aria-label="工作动线"><div class="work-list-heading"><span>工作动线 / 子工作与成果</span><span>状态</span><span>最近更新</span></div><div id="work-rows"></div></section><div id="work-resize" role="separator" aria-label="调整工作详情高度" aria-orientation="horizontal" aria-valuemin="20" aria-valuemax="60" aria-valuenow="34" tabindex="0" hidden></div><aside id="work-detail" aria-label="工作详情" hidden></aside></div>
+    <div class="work-footer muted"><span id="work-count" role="status"></span><span>本地工作记录与 Git</span></div>`;
   $('workspace').before(root);
   const mode=on=>{$('app').classList.toggle('work-mode',on);toggle.textContent=on?'Git 历史':'工作进展';};
-  toggle.onclick=()=>mode(!$('app').classList.contains('work-mode'));
-  mode(true);
-  function reset() {generation++;request++;data=null;selected=null;$('work-rows').innerHTML='';$('work-detail').innerHTML='';$('work-lanes').textContent='';$('work-project').textContent='';$('work-count').textContent='读取工作记录…';}
-  const time=t=>t?new Date(t).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'—';
-  function rows() {
-    const works=data.works.filter(w=>(filter==='全部'||filter===w.status)&&(!query||[w.title,w.id,w.next,...data.records.filter(r=>r.workId===w.id).map(r=>r.title)].join(' ').toLowerCase().includes(query)));
-    return [...works.map(w=>({id:w.id,workId:w.id,title:w.title,current:true})),...data.records.filter(r=>works.some(w=>w.id===r.workId)).map(r=>({...r,id:r.hash}))];
+  toggle.onclick=()=>mode(!$('app').classList.contains('work-mode'));mode(true);
+  const statusClass=status=>status==='已完成'?'done':status==='进行中'?'active':'other';
+  const time=value=>value?new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'—';
+  const children=id=>data.works.filter(w=>(w.parentId||null)===id);
+  function descendants(id) {return [id,...children(id).flatMap(w=>descendants(w.id))];}
+  function matchingIds() {
+    const ids=new Set(),queryMatches=new Set();
+    for(const w of data.works) {
+      const records=data.records.filter(r=>r.workId===w.id);
+      const text=[w.id,w.title,w.summary,w.next,...(w.outcomes||[]),...(w.issues||[]),...records.map(r=>`${r.title} ${r.hash}`)].join(' ').toLowerCase();
+      if(!query||text.includes(query))queryMatches.add(w.id);
+    }
+    for(const w of data.works) {
+      let ancestor=w,queryMatch=false;
+      while(ancestor&&!queryMatch){queryMatch=queryMatches.has(ancestor.id);ancestor=data.works.find(x=>x.id===ancestor.parentId);}
+      if((filter==='全部'||filter===w.status)&&queryMatch) {
+        let current=w;
+        while(current&&!ids.has(current.id)){ids.add(current.id);current=data.works.find(x=>x.id===current.parentId);}
+      }
+    }
+    return ids;
   }
-  function render(){
+  function applySize() {
+    const layoutHeight=$('work-layout').getBoundingClientRect?.().height||600;
+    // Never let the detail pane take more than 60%; retain at least 120px of list.
+    const max=Math.max(0,Math.min(layoutHeight*.6,layoutHeight-126));
+    const height=Math.min(max,Math.max(Math.min(140,max),layoutHeight*detailRatio));
+    $('work-detail').style.height=height+'px';
+    $('work-resize').setAttribute('aria-valuenow',String(Math.round(detailRatio*100)));
+  }
+  function showDetail(on) {$('work-detail').hidden=!on;$('work-resize').hidden=!on;if(on)applySize();}
+  function reset() {
+    generation++;request++;patchRequest++;data=null;selected=null;detail=false;tab='progress';query='';filter='全部';expanded.clear();searchCollapsed.clear();
+    $('work-search').value='';$('work-filter').value='全部';$('work-rows').innerHTML='';$('work-detail').innerHTML='';showDetail(false);
+    $('work-lanes').textContent='';$('work-project').textContent='';$('work-count').textContent='读取工作记录…';$('work-list').scrollTop=0;
+  }
+  function renderDetail() {
+    const w=data.works.find(w=>w.id===selected);
+    if(!w||!detail){showDetail(false);return;}
+    const ids=new Set(descendants(w.id)),records=data.records.filter(r=>ids.has(r.workId));
+    const parent=data.works.find(x=>x.id===w.parentId);
+    const list=(values,empty)=>values?.length?`<ul>${values.map(v=>`<li>${esc(v)}</li>`).join('')}</ul>`:`<p class="muted">${empty}</p>`;
+    $('work-detail').innerHTML=`<div class="detail-bar"><div class="work-detail-title">${parent?`<span>${esc(parent.title)} / </span>`:''}<strong>${esc(w.title)}</strong></div><span class="work-status ${statusClass(w.status)}">${esc(w.status)}</span><button id="work-close" aria-label="关闭工作详情">收起</button></div>
+      <div class="work-detail-tabs" role="tablist" aria-label="工作详情内容"><button id="work-tab-progress" role="tab" aria-selected="${tab==='progress'}" aria-controls="work-detail-content">进展</button><button id="work-tab-evidence" role="tab" aria-selected="${tab==='evidence'}" aria-controls="work-detail-content">代码依据 <span>${records.length}</span></button><span class="grow"></span><span class="work-updated">记录更新 ${time(w.updatedAt)}</span></div>
+      <div class="work-detail-body" id="work-detail-content" role="tabpanel" aria-labelledby="work-tab-${tab}">${tab==='progress'?`<div class="work-progress-content"><section><h3>当前进展</h3><p>${esc(w.summary||'尚未填写进展摘要。')}</p><h3>下一步</h3><p>${esc(w.next||'尚未填写下一步。')}</p></section><section><h3>成果</h3>${list(w.outcomes,'尚未记录具体成果。')}<h3>问题与边界</h3>${list(w.issues,'尚未记录问题；不代表已完成验证或用户验收。')}</section></div>`:`<div class="work-evidence-content"><p class="work-evidence-note">${w.parentId?'仅列本工作及子项的关联，不继承父动线的提交。':'包含本动线及子项的明确关联提交，子项来源单独标注。'}提交不代表验证或用户验收。</p>${records.length?`<div class="work-evidence-records">${records.map(r=>{const owner=data.works.find(x=>x.id===r.workId);return `<button class="work-evidence-record" data-patch="${esc(r.hash)}"><code>${esc(r.hash.slice(0,7))}</code><span>${esc(r.title)}${r.workId!==w.id?`<small>来自子项：${esc(owner?.title||r.workId)}</small>`:''}</span><time>${time(r.time)}</time></button>`;}).join('')}</div>`:'<p class="muted">暂无明确关联的提交。</p>'}<pre id="work-real-patch" hidden></pre><details class="work-dirty"><summary>仓库未提交文件 · ${data.dirty.length}</summary><p class="muted">以下文件属于仓库现场，未自动分配给本工作。</p><p class="mono">${data.dirty.map(f=>esc(f.path)).join('<br>')||'工作区干净'}</p></details></div>`}</div>`;
+    showDetail(true);
+  }
+  function render({detailOnly=false,preserveDetail=false}={}) {
     if(!data)return;
-    const list=rows(), lane=id=>data.works.findIndex(w=>w.id===id), width=Math.max(68,data.works.length*16+16);
-    root.style.setProperty('--work-graph-width',width+'px');
-    if(!list.some(r=>r.id===selected))selected=list[0]?.id;
+    if(detailOnly){renderDetail();return;}
+    const scrollTop=$('work-list').scrollTop||0,focus=document.activeElement?.dataset;
+    const allowed=matchingIds(),roots=children(null),visible=[];
+    const walk=(work,depth)=>{
+      if(!allowed.has(work.id))return;
+      const nested=children(work.id),autoOpen=(query||filter!=='全部')&&nested.some(c=>allowed.has(c.id));
+      const open=expanded.has(work.id)||(autoOpen&&!searchCollapsed.has(work.id));
+      visible.push({work,depth,open,hasChildren:nested.some(child=>allowed.has(child.id))});if(open)nested.forEach(child=>walk(child,depth+1));
+    };
+    roots.forEach(w=>walk(w,0));
+    if(selected&&!allowed.has(selected)){selected=null;detail=false;}
     $('work-project').textContent=data.repository.name;
-    $('work-lanes').innerHTML=data.works.map((w,i)=>`<span class="lane-key" style="--lane:var(--c${i%8})">${esc(w.title)}</span>`).join('');
-    $('work-count').textContent=`${data.works.length} 项工作 · ${data.records.length} 个提交 · ${data.dirty.length} 个未提交文件${data.hasMore?' · 历史已截断':''}`;
-    $('work-rows').innerHTML=list.map((r,n)=>{
-      const i=lane(r.workId),w=data.works[i];let lines='';
-      data.works.forEach((_,j)=>{const p=list.map((x,k)=>lane(x.workId)===j?k:-1).filter(k=>k>=0);if(p.length&&n>=p[0]&&n<=p.at(-1))lines+=`<path d="M${16+j*16} ${n===p[0]?16:0}V${n===p.at(-1)?16:32}" stroke="var(--c${j%8})" opacity=".5"/>`;});
-      return `<button class="work-row commit-row ${r.current?'work-current':''} ${r.id===selected?'selected':''}" data-record="${esc(r.id)}" style="--row-color:var(--c${i%8})"><span class="work-graph"><svg viewBox="0 0 ${width} 32">${lines}<circle cx="${16+i*16}" cy="16" r="${r.current?4:3}" fill="var(--c${i%8})"/></svg></span><span class="work-summary"><span class="subject">${esc(r.title)}</span>${r.current?`<span class="work-row-next">${esc(w.next)}</span>`:`<span class="muted">${r.hash.slice(0,7)}</span>`}</span><span class="work-kind">${r.current?w.status:'提交'}</span><span class="date">${r.current?'':time(r.time)}</span></button>`;
-    }).join('')||'<p class="notice">没有匹配的工作。</p>';
-    $('work-detail').hidden=!detail;
-    const r=list.find(x=>x.id===selected);
-    if(!r){$('work-detail').innerHTML='';return;}
-    const w=data.works[lane(r.workId)], count=data.records.filter(x=>x.workId===w.id).length;
-    $('work-detail').innerHTML=`<div class="detail-bar"><strong>${esc(r.title)}</strong><span class="grow"></span>${!r.current?'<button id="work-patch">查看提交差异</button>':''}<button id="work-close">收起</button></div><div class="work-context"><section><p>${esc(w.summary)}</p><div class="work-next"><span class="muted">下一步</span><span>${esc(w.next||'—')}</span></div></section><section class="work-evidence"><p>${esc(w.status)} · ${count} 个关联提交</p><p class="muted">状态来自工作记录；提交不代表验证或用户验收。</p>${r.hash?`<p class="mono">${r.hash}</p>`:''}<details><summary>未提交文件 · ${data.dirty.length}</summary><p class="mono">${data.dirty.map(f=>esc(f.path)).join('<br>')||'工作区干净'}</p></details></section></div><pre id="work-real-patch" hidden></pre>`;
+    $('work-lanes').innerHTML=`<span class="work-total"><strong>${roots.length}</strong> 条动线</span>`+['进行中','已完成','已搁置','待开始'].map(status=>{const count=roots.filter(w=>w.status===status).length;return count?`<span class="work-stat ${statusClass(status)}"><i></i><strong>${count}</strong> ${status}</span>`:'';}).join('');
+    $('work-count').textContent=`${roots.length} 条动线 · ${data.works.length-roots.length} 项子工作与成果 · ${data.records.length} 个提交${data.hasMore?' · 历史已截断':''}`;
+    $('work-rows').innerHTML=visible.map(({work:w,depth,open,hasChildren})=>`<div class="work-row ${w.id===selected?'selected':''}" style="--work-depth:${depth}"><div class="work-row-title">${hasChildren?`<button class="work-expand" data-expand="${esc(w.id)}" aria-expanded="${open}" aria-label="${open?'收起':'展开'} ${esc(w.title)} 的子工作与成果">${open?'⌄':'›'}</button>`:'<span class="work-expand-placeholder" aria-hidden="true"></span>'}<button class="work-title" data-record="${esc(w.id)}" aria-pressed="${w.id===selected}" title="${esc(w.title)}"><span class="work-type ${w.kind==='outcome'?'outcome':''}" aria-hidden="true">${w.kind==='outcome'?'◇':'○'}</span><span>${esc(w.title)}</span></button></div><span class="work-status ${statusClass(w.status)}">${esc(w.status)}</span><time title="${esc(w.updatedAt||'尚未记录更新时间')}">${time(w.updatedAt)}</time></div>`).join('')||'<div class="work-empty"><strong>没有匹配的工作</strong><p>试试其他关键词或工作状态。</p></div>';
+    if(focus?.record||focus?.expand){Array.from(root.querySelectorAll?.('[data-record], [data-expand]')||[]).find(control=>focus.record?control.dataset.record===focus.record:control.dataset.expand===focus.expand)?.focus({preventScroll:true});}
+    $('work-list').scrollTop=scrollTop;if(!preserveDetail)renderDetail();
   }
-  async function update(){const epoch=generation,seq=++request;try{const result=await call('work_graph');if(epoch!==generation||seq!==request)return;data=result;render();}catch(e){if(epoch===generation&&seq===request){data=null;$('work-detail').innerHTML='';$('work-lanes').textContent='';$('work-rows').textContent=e.message;$('work-count').textContent='工作记录读取失败';}}}
-  root.onclick=async e=>{
-    const row=e.target.closest('[data-record]');if(row){request++;selected=row.dataset.record;detail=true;render();}
-    if(e.target.id==='work-close'){$('work-detail').hidden=true;detail=false;}
-    if(e.target.id==='work-patch') {const id=selected,epoch=generation,seq=++request;const pane=$('work-real-patch');pane.hidden=false;pane.textContent='读取差异…';try{const result=await call('commit',{hash:id});if(epoch===generation&&seq===request&&selected===id)pane.textContent=result.patch+(result.truncated?'\n[差异已截断]':'');}catch(error){if(epoch===generation&&seq===request)pane.textContent=error.message;}}
+  async function update() {
+    const epoch=generation,seq=++request;
+    try{const result=await call('work_graph');if(epoch!==generation||seq!==request)return;patchRequest++;data=result;render();}
+    catch(error){if(epoch===generation&&seq===request){patchRequest++;data=null;selected=null;detail=false;$('work-detail').innerHTML='';showDetail(false);$('work-lanes').textContent='';$('work-rows').textContent=error.message;$('work-count').textContent='工作记录读取失败';}}
+  }
+  root.onclick=async event=>{
+    const expander=event.target.closest('[data-expand]');
+    if(expander){const id=expander.dataset.expand;const autoOpen=(query||filter!=='全部')&&!searchCollapsed.has(id);if(expanded.has(id)||autoOpen){expanded.delete(id);searchCollapsed.add(id);}else{expanded.add(id);searchCollapsed.delete(id);}render({preserveDetail:true});return;}
+    const row=event.target.closest('[data-record]');
+    if(row){patchRequest++;selected=row.dataset.record;detail=true;render();return;}
+    if(event.target.id==='work-close'){patchRequest++;detail=false;showDetail(false);return;}
+    const tabButton=event.target.closest('[role="tab"]');
+    if(tabButton){patchRequest++;tab=tabButton.id==='work-tab-evidence'?'evidence':'progress';render({detailOnly:true});return;}
+    const commit=event.target.closest('[data-patch]');
+    if(commit){
+      const id=selected,hash=commit.dataset.patch,epoch=generation,seq=++patchRequest,pane=$('work-real-patch');
+      pane.hidden=false;pane.textContent='读取差异…';
+      try{const result=await call('commit',{hash});if(epoch===generation&&seq===patchRequest&&selected===id)pane.textContent=result.patch+(result.truncated?'\n[差异已截断]':'');}
+      catch(error){if(epoch===generation&&seq===patchRequest&&selected===id)pane.textContent=error.message;}
+    }
   };
-  $('work-filter').onchange=e=>{request++;filter=e.target.value;render();};$('work-search').oninput=e=>{request++;query=e.target.value.trim().toLowerCase();render();};$('work-reload').onclick=()=>update();
-  $('work-theme').onclick=()=>{document.documentElement.dataset.theme=document.documentElement.dataset.theme==='light'?'dark':'light';};
-  reset();
-  return {reset,update};
+  const resize=$('work-resize');
+  resize.onpointerdown=event=>{if(event.button!==0)return;event.preventDefault();drag={y:event.clientY,ratio:detailRatio,height:$('work-layout').getBoundingClientRect().height};resize.setPointerCapture?.(event.pointerId);};
+  resize.onpointermove=event=>{if(!drag)return;detailRatio=Math.max(.2,Math.min(.6,drag.ratio+(drag.y-event.clientY)/drag.height));applySize();};
+  resize.onpointerup=resize.onpointercancel=()=>{drag=null;};
+  resize.onkeydown=event=>{if(!['ArrowUp','ArrowDown','Home','End'].includes(event.key))return;event.preventDefault();detailRatio=event.key==='Home'?.2:event.key==='End'?.6:Math.max(.2,Math.min(.6,detailRatio+(event.key==='ArrowUp'?.05:-.05)));applySize();};
+  if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{if(detail)applySize();}).observe($('work-layout'));
+  $('work-filter').onchange=event=>{patchRequest++;filter=event.target.value;searchCollapsed.clear();render();};
+  $('work-search').oninput=event=>{patchRequest++;query=event.target.value.trim().toLowerCase();searchCollapsed.clear();render();};
+  $('work-reload').onclick=()=>update();$('work-theme').onclick=()=>{document.documentElement.dataset.theme=document.documentElement.dataset.theme==='light'?'dark':'light';};
+  reset();return {reset,update};
 }

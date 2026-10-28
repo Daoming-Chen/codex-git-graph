@@ -14,18 +14,34 @@ export async function readWorkGraph(repositoryPath) {
       manifest = JSON.parse(await readFile(filename, 'utf8'));
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
-  if (manifest.version !== 1 || !Array.isArray(manifest.works) || manifest.works.length > 100) throw new Error('工作记录格式无效。');
+  if (!manifest || manifest.version !== 1 || !Array.isArray(manifest.works) || manifest.works.length > 100) throw new Error('工作记录格式无效。');
   const ids = new Set(), hashes = new Set();
   const works = manifest.works.map(w => {
-    if (!/^[A-Z][A-Z0-9-]{0,39}$/.test(w.id) || ids.has(w.id) || typeof w.title !== 'string' || !w.title.trim() || w.title.length > 160 || !['进行中','已完成','已搁置','待开始'].includes(w.status) || !Array.isArray(w.commits)) throw new Error('工作项格式或标识无效。');
+    if (!w || typeof w !== 'object' || Array.isArray(w) || !/^[A-Z][A-Z0-9-]{0,39}$/.test(w.id) || w.id === 'UNASSIGNED' || ids.has(w.id) || typeof w.title !== 'string' || !w.title.trim() || w.title.length > 160 || !['进行中','已完成','已搁置','待开始'].includes(w.status) || !Array.isArray(w.commits) || w.commits.length > 1000) throw new Error('工作项格式或标识无效。');
+    if (Object.keys(w).some(key=>!['id','title','status','commits','next','summary','parentId','kind','updatedAt','outcomes','issues'].includes(key))) throw new Error('工作项包含未知字段。');
     ids.add(w.id);
     for (const h of w.commits) {
       if (!/^[a-f0-9]{40,64}$/.test(h) || hashes.has(h)) throw new Error('提交关联无效或重复。');
       hashes.add(h);
     }
     for (const key of ['next','summary']) if (w[key] !== undefined && (typeof w[key] !== 'string' || w[key].length > 1000)) throw new Error('工作摘要无效。');
-    return { id:w.id, title:w.title, status:w.status, next:w.next || '', summary:w.summary || '', commits:w.commits };
+    if (w.parentId !== undefined && (typeof w.parentId !== 'string' || !/^[A-Z][A-Z0-9-]{0,39}$/.test(w.parentId))) throw new Error('父工作项标识无效。');
+    if (w.kind !== undefined && !['work','outcome'].includes(w.kind)) throw new Error('工作项类型无效。');
+    // Require an actual, unambiguous timestamp; never derive a work update from Git activity.
+    if (w.updatedAt !== undefined && (typeof w.updatedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(w.updatedAt) || !Number.isFinite(Date.parse(w.updatedAt)) || new Date(w.updatedAt).toISOString() !== w.updatedAt.replace(/Z$/,w.updatedAt.includes('.')?'Z':'.000Z'))) throw new Error('工作更新时间必须是有效的 UTC ISO 时间。');
+    for (const key of ['outcomes','issues']) if (w[key] !== undefined && (!Array.isArray(w[key]) || w[key].length > 20 || w[key].some(value=>typeof value !== 'string' || !value.trim() || value.length > 1000))) throw new Error('成果或问题记录无效。');
+    return { id:w.id, title:w.title, status:w.status, next:w.next || '', summary:w.summary || '', commits:w.commits,
+      parentId:w.parentId || null, kind:w.kind || 'work', updatedAt:w.updatedAt || null, outcomes:w.outcomes || [], issues:w.issues || [] };
   });
+  const byId=new Map(works.map(work=>[work.id,work]));
+  for (const work of works) {
+    const visited=new Set([work.id]);let current=work,depth=0;
+    while(current.parentId) {
+      if (!byId.has(current.parentId) || visited.has(current.parentId)) throw new Error('工作层级包含缺失父项或循环引用。');
+      visited.add(current.parentId);current=byId.get(current.parentId);
+      if (++depth > 2) throw new Error('工作层级最多支持三层。');
+    }
+  }
   const head = (await git(root, ['rev-parse','--verify','--quiet','HEAD']).catch(() => '')).trim();
   const raw = head ? await git(root, ['log','--max-count=301','--format=%H%x00%aI%x00%s%x00%b%x00','HEAD','--']) : '';
   const fields = raw.split('\0'), records = [];
